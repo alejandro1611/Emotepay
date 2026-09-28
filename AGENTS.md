@@ -1,9 +1,68 @@
-<!-- BEGIN:nextjs-agent-rules -->
+# EmotePay
 
-# This is NOT the Next.js you know
+EmotePay is a programmable social-payment layer built on Monad.
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+## Product vision
 
-This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+A user should be able to:
 
-<!-- END:nextjs-agent-rules -->
+1. Sign in using Google or email.
+2. Receive an embedded wallet automatically through Privy.
+3. Select an emote associated with a payment.
+4. Send the transaction through Monad.
+5. Trigger a real-time visual event for the creator.
+6. Store/index the donation for history and analytics.
+
+Users should not need to understand:
+- wallets
+- seed phrases
+- gas
+- RPCs
+- transaction hashes
+
+The UX should feel like a Web2 payment application.
+
+## Core stack
+
+Frontend:
+- React
+- TypeScript/JavaScript
+
+Blockchain:
+- Monad
+- Solidity
+
+Authentication / wallet:
+- Privy
+
+RPC / blockchain data:
+- Alchemy
+
+Indexing:
+- Envio
+
+Streaming integration:
+- OBS Browser Source
+- WebSocket or SSE
+
+## Development principles
+
+- Do not rewrite working features unnecessarily.
+- Inspect existing architecture before modifying code.
+- Make small incremental changes.
+- Do not expose private keys or API secrets.
+- Environment variables must live in .env files.
+- Never hardcode wallet private keys.
+- Explain important architectural changes before implementing them.
+- Run the relevant tests/build after modifications.
+
+## Current priorities
+
+1. Privy authentication.
+2. Embedded wallet creation.
+3. Emote payment transaction.
+4. EmotePay smart contract.
+5. Transaction confirmation.
+6. OBS overlay.
+7. Envio indexing.
+8. Alchemy integration.
