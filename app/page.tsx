@@ -1,38 +1,335 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Send, Tv, Heart, Zap, Award, Flame } from "lucide-react";
+import { Sparkles, Send, Tv, Zap } from "lucide-react";
+import { usePrivy, useSendTransaction, useWallets } from "@privy-io/react-auth";
+import { AuthButton } from "@/components/AuthButton";
+import { emotePayContract } from "@/lib/contracts";
+import { demoCreator } from "@/lib/creator";
+import { EMOTES, type Emote } from "@/lib/emotes";
+import {
+  getPaymentReadinessState,
+  type PaymentState,
+} from "@/lib/payment";
+import { monadTestnet } from "@/lib/chains";
+import {
+  createPublicClient,
+  encodeFunctionData,
+  http,
+  isAddressEqual,
+  parseEther,
+  type Address,
+} from "viem";
 
-// Lista de emotes y sus valores de apoyo predeterminados
-const EMOTES = [
-  { id: "fire", name: "Hype Fire", icon: "🔥", amount: "1 MON", color: "from-orange-500 to-red-600" },
-  { id: "rocket", name: "To The Moon", icon: "🚀", amount: "5 MON", color: "from-purple-500 to-indigo-600" },
-  { id: "crown", name: "King/Queen", icon: "👑", amount: "10 MON", color: "from-amber-400 to-yellow-600" },
-  { id: "gem", name: "Diamond Hands", icon: "💎", amount: "25 MON", color: "from-cyan-400 to-blue-600" },
-];
+const monadPublicClient = createPublicClient({
+  chain: monadTestnet,
+  transport: http(monadTestnet.rpcUrls.default.http[0]),
+});
+
+type BalanceCheckState =
+  | { status: "idle" }
+  | { status: "checking" }
+  | { status: "ready" }
+  | { status: "insufficient"; reason: string }
+  | { status: "error"; reason: string };
+
+function getEmbeddedWallet(
+  wallets: ReturnType<typeof useWallets>["wallets"],
+) {
+  return wallets.find(
+    (wallet) =>
+      wallet.type === "ethereum" &&
+      (wallet.walletClientType === "privy" ||
+        wallet.walletClientType === "privy-v2"),
+  );
+}
+
+function getTransactionErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const lowerMessage = message.toLowerCase();
+
+  if (lowerMessage.includes("user rejected")) {
+    return "Transaction rejected by user.";
+  }
+
+  if (
+    lowerMessage.includes("insufficient") ||
+    lowerMessage.includes("exceeds balance")
+  ) {
+    return "Insufficient MON balance.";
+  }
+
+  if (lowerMessage.includes("revert")) {
+    return "Donation transaction reverted.";
+  }
+
+  if (lowerMessage.includes("fetch") || lowerMessage.includes("network")) {
+    return "RPC request failed. Please try again.";
+  }
+
+  return "Donation transaction failed.";
+}
+
+async function getRequiredDonationBalance({
+  contractAddress,
+  creatorAddress,
+  donorAddress,
+  onchainId,
+  value,
+}: {
+  contractAddress: Address;
+  creatorAddress: Address;
+  donorAddress: Address;
+  onchainId: number;
+  value: bigint;
+}) {
+  const gas = await monadPublicClient.estimateContractGas({
+    address: contractAddress,
+    abi: emotePayContract.abi,
+    functionName: "donate",
+    args: [creatorAddress, BigInt(onchainId)],
+    account: donorAddress,
+    value,
+  });
+  const gasPrice = await monadPublicClient.getGasPrice();
+
+  return value + gas * gasPrice;
+}
 
 export default function Home() {
-  const [selectedEmote, setSelectedEmote] = useState(EMOTES[0]);
+  const { ready, authenticated } = usePrivy();
+  const { ready: walletsReady, wallets } = useWallets();
+  const { sendTransaction } = useSendTransaction();
+  const [selectedEmote, setSelectedEmote] = useState<Emote>(EMOTES[0]);
   const [message, setMessage] = useState("");
-  const [alerts, setAlerts] = useState<Array<{ id: number; emote: typeof EMOTES[0]; message: string }>>([]);
+  const [alerts, setAlerts] = useState<Array<{ id: number; emote: Emote; message: string }>>([]);
+  const [transactionState, setTransactionState] = useState<PaymentState>({
+    status: "idle",
+  });
+  const [balanceCheck, setBalanceCheck] = useState<BalanceCheckState>({
+    status: "idle",
+  });
+  const embeddedWallet = useMemo(() => getEmbeddedWallet(wallets), [wallets]);
+  const embeddedWalletAddress = embeddedWallet?.address as Address | undefined;
+  const isSelfDonation =
+    Boolean(embeddedWalletAddress && demoCreator.walletAddress) &&
+    isAddressEqual(
+      embeddedWalletAddress!,
+      demoCreator.walletAddress as Address,
+    );
+  const readinessState = getPaymentReadinessState({
+    authReady: ready,
+    authenticated,
+    walletsReady,
+    hasEmbeddedWallet: Boolean(embeddedWallet),
+    creatorStatus: demoCreator.configurationStatus,
+    contractStatus: emotePayContract.configurationStatus,
+    isSelfDonation,
+  });
+  const paymentState =
+    transactionState.status === "pending" ||
+    transactionState.status === "success"
+      ? transactionState
+      : readinessState.status === "ready"
+        ? readinessState
+        : transactionState.status === "error"
+        ? transactionState
+        : readinessState;
+  const effectiveBalanceCheck: BalanceCheckState =
+    readinessState.status === "ready" ? balanceCheck : { status: "idle" };
+  const balanceCheckMessage =
+    effectiveBalanceCheck.status === "insufficient" ||
+    effectiveBalanceCheck.status === "error"
+      ? effectiveBalanceCheck.reason
+      : null;
+  const canSendReaction =
+    readinessState.status === "ready" &&
+    paymentState.status !== "pending" &&
+    effectiveBalanceCheck.status === "ready";
+  const sendButtonLabel =
+    paymentState.status === "pending"
+      ? "Confirming reaction..."
+      : effectiveBalanceCheck.status === "checking"
+        ? "Checking wallet balance..."
+        : effectiveBalanceCheck.status === "insufficient"
+          ? "Wallet needs testnet MON"
+          : canSendReaction
+            ? `Send ${selectedEmote.name} (${selectedEmote.displayAmount})`
+            : authenticated
+              ? "Payments not ready"
+              : "Log in to send reaction";
 
-  // Simulación de envío de gesto social / propina
-  const handleSendReaction = (e: React.FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    if (
+      readinessState.status !== "ready" ||
+      !embeddedWalletAddress ||
+      !demoCreator.walletAddress ||
+      !emotePayContract.address
+    ) {
+      return;
+    }
+
+    const donorAddress = embeddedWalletAddress;
+    const creatorAddress = demoCreator.walletAddress;
+    const contractAddress = emotePayContract.address;
+    let isCancelled = false;
+
+    async function checkWalletBalance() {
+      setBalanceCheck({ status: "checking" });
+
+      try {
+        const value = parseEther(selectedEmote.amountMon);
+        const requiredBalance = await getRequiredDonationBalance({
+          contractAddress,
+          creatorAddress,
+          donorAddress,
+          onchainId: selectedEmote.onchainId,
+          value,
+        });
+        const balance = await monadPublicClient.getBalance({
+          address: donorAddress,
+        });
+
+        if (isCancelled) {
+          return;
+        }
+
+        setBalanceCheck(
+          balance >= requiredBalance
+            ? { status: "ready" }
+            : {
+                status: "insufficient",
+                reason: "Your wallet needs Monad Testnet MON.",
+              },
+        );
+      } catch {
+        if (!isCancelled) {
+          setBalanceCheck({
+            status: "error",
+            reason: "Unable to check wallet balance right now.",
+          });
+        }
+      }
+    }
+
+    checkWalletBalance();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    embeddedWalletAddress,
+    readinessState.status,
+    selectedEmote.amountMon,
+    selectedEmote.onchainId,
+  ]);
+
+  const triggerDonationAlert = (emote: Emote, alertMessage: string) => {
     const newAlert = {
       id: Date.now(),
-      emote: selectedEmote,
-      message: message || "¡Grandioso stream! 🔥",
+      emote,
+      message: alertMessage || "¡Grandioso stream! 🔥",
     };
 
     setAlerts((prev) => [newAlert, ...prev]);
     setMessage("");
 
-    // Ocultar alerta simulación después de 4 segundos
     setTimeout(() => {
       setAlerts((prev) => prev.filter((a) => a.id !== newAlert.id));
     }, 4000);
+  };
+
+  const handleSendReaction = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!canSendReaction) {
+      setTransactionState(
+        balanceCheckMessage
+          ? { status: "error", reason: balanceCheckMessage }
+          : readinessState,
+      );
+      return;
+    }
+
+    if (!embeddedWallet || !demoCreator.walletAddress || !emotePayContract.address) {
+      setTransactionState({
+        status: "error",
+        reason: "Payment configuration is not ready.",
+      });
+      return;
+    }
+
+    const donationMessage = message;
+    const value = parseEther(selectedEmote.amountMon);
+
+    try {
+      setTransactionState({ status: "pending" });
+
+      await embeddedWallet.switchChain(monadTestnet.id);
+
+      const requiredBalance = await getRequiredDonationBalance({
+        contractAddress: emotePayContract.address,
+        creatorAddress: demoCreator.walletAddress,
+        donorAddress: embeddedWallet.address as Address,
+        onchainId: selectedEmote.onchainId,
+        value,
+      });
+      const balance = await monadPublicClient.getBalance({
+        address: embeddedWallet.address as Address,
+      });
+
+      if (balance < requiredBalance) {
+        setBalanceCheck({
+          status: "insufficient",
+          reason: "Your wallet needs Monad Testnet MON.",
+        });
+        setTransactionState({
+          status: "error",
+          reason: "Your wallet needs Monad Testnet MON.",
+        });
+        return;
+      }
+
+      const data = encodeFunctionData({
+        abi: emotePayContract.abi,
+        functionName: "donate",
+        args: [demoCreator.walletAddress, BigInt(selectedEmote.onchainId)],
+      });
+      const { hash } = await sendTransaction(
+        {
+          to: emotePayContract.address,
+          data,
+          value,
+          chainId: monadTestnet.id,
+        },
+        {
+          address: embeddedWallet.address,
+        },
+      );
+
+      setTransactionState({ status: "pending", hash });
+
+      const receipt = await monadPublicClient.waitForTransactionReceipt({
+        hash,
+      });
+
+      if (receipt.status !== "success") {
+        setTransactionState({
+          status: "error",
+          reason: "Donation transaction reverted.",
+        });
+        return;
+      }
+
+      setTransactionState({ status: "success", reference: hash });
+      triggerDonationAlert(selectedEmote, donationMessage);
+    } catch (error) {
+      setTransactionState({
+        status: "error",
+        reason: getTransactionErrorMessage(error),
+      });
+    }
   };
 
   return (
@@ -52,10 +349,13 @@ export default function Home() {
               Emote<span className="text-purple-400">Pay</span>
             </span>
           </div>
-          <button className="text-sm font-medium px-4 py-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-purple-500/50 transition-all flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            Monad Testnet
-          </button>
+          <div className="flex items-center gap-3">
+            <button className="text-sm font-medium px-4 py-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-purple-500/50 transition-all flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              Monad Testnet
+            </button>
+            <AuthButton />
+          </div>
         </div>
       </header>
 
@@ -97,12 +397,14 @@ export default function Home() {
                     transition={{ repeat: Infinity, duration: 1.5 }}
                     className="text-6xl mb-2"
                   >
-                    {alert.emote.icon}
+                    {alert.emote.emoji}
                   </motion.span>
                   <div className="text-xs font-bold uppercase tracking-wider text-purple-400 mb-1">
-                    {alert.emote.name} ({alert.emote.amount})
+                    {alert.emote.name} ({alert.emote.displayAmount})
                   </div>
-                  <p className="text-sm font-medium text-slate-200">"{alert.message}"</p>
+                  <p className="text-sm font-medium text-slate-200">
+                    &quot;{alert.message}&quot;
+                  </p>
                 </motion.div>
               ))}
             </AnimatePresence>
@@ -139,10 +441,10 @@ export default function Home() {
                             : "bg-slate-950/50 border-slate-800 hover:border-slate-700"
                         }`}
                       >
-                        <span className="text-2xl">{e.icon}</span>
+                        <span className="text-2xl">{e.emoji}</span>
                         <div>
                           <div className="text-xs font-bold text-slate-200">{e.name}</div>
-                          <div className="text-[11px] font-medium text-purple-400">{e.amount}</div>
+                          <div className="text-[11px] font-medium text-purple-400">{e.displayAmount}</div>
                         </div>
                       </button>
                     );
@@ -168,10 +470,41 @@ export default function Home() {
               {/* Send Button */}
               <button
                 type="submit"
-                className={`w-full py-3.5 px-6 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 shadow-lg bg-gradient-to-r ${selectedEmote.color} hover:opacity-95 hover:scale-[1.01] active:scale-[0.99]`}
+                disabled={!canSendReaction}
+                className={`w-full py-3.5 px-6 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 shadow-lg bg-gradient-to-r ${selectedEmote.color} hover:opacity-95 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed`}
               >
-                <Send className="w-4 h-4" /> Send {selectedEmote.name} ({selectedEmote.amount})
+                <Send className="w-4 h-4" />{" "}
+                {sendButtonLabel}
               </button>
+              {!authenticated && (
+                <p className="text-xs text-slate-500 text-center">
+                  Sign in with Google or email to create your embedded wallet.
+                </p>
+              )}
+              {authenticated && paymentState.status === "pending" && (
+                <p className="text-xs text-purple-300 text-center">
+                  Waiting for Monad confirmation
+                  {paymentState.hash ? `: ${paymentState.hash.slice(0, 10)}...` : "."}
+                </p>
+              )}
+              {authenticated && paymentState.status === "success" && (
+                <p className="text-xs text-emerald-300 text-center">
+                  Donation confirmed
+                  {paymentState.reference ? `: ${paymentState.reference.slice(0, 10)}...` : "."}
+                </p>
+              )}
+              {authenticated && paymentState.status === "error" && (
+                <p className="text-xs text-amber-300 text-center">
+                  {paymentState.reason}
+                </p>
+              )}
+              {authenticated &&
+                paymentState.status !== "error" &&
+                balanceCheckMessage && (
+                  <p className="text-xs text-amber-300 text-center">
+                    {balanceCheckMessage}
+                  </p>
+                )}
             </form>
           </div>
         </div>
