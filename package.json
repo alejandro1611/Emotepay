@@ -10,6 +10,9 @@
     "compile:contracts": "hardhat build",
     "deploy:monad": "hardhat run scripts/deploy-emotepay.ts --network monadTestnet",
     "generate:abi": "node scripts/generate-emotepay-abi.mjs",
+    "indexer:codegen": "pnpm --dir indexer codegen",
+    "indexer:dev": "pnpm --dir indexer dev",
+    "indexer:typecheck": "pnpm --dir indexer typecheck",
     "test:contracts": "hardhat test nodejs",
     "start": "next start",
     "lint": "eslint"

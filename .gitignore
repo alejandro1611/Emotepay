@@ -1,8 +1,8 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
-/.pnp
+node_modules/
+.pnp
 .pnp.*
 .yarn/*
 !.yarn/patches
@@ -12,10 +12,12 @@
 
 # testing
 /coverage
+
+# Hardhat
 /cache/
 /artifacts/build-info/
 
-# next.js
+# Next.js
 /.next/
 /out/
 
@@ -36,9 +38,18 @@ yarn-error.log*
 .env*
 !.env.example
 
-# vercel
+# Vercel
 .vercel
 
-# typescript
+# TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local pnpm artifacts created accidentally at repository root
+/.pnpm-store/
+/pnpm-lock.yaml
+/pnpm-workspace.yaml
+
+# Local Envio artifacts
+/index.db
+.envio/

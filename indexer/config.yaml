@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+name: emotepay-donations
+description: EmotePay Donation history and creator aggregates on Monad Testnet.
+
+contracts:
+  - name: EmotePay
+    events:
+      - event: "Donation(address indexed donor, address indexed creator, uint256 amount, uint256 indexed emoteId)"
+        field_selection:
+          transaction_fields:
+            - hash
+
+chains:
+  - id: 10143 # Monad Testnet, HyperSync-supported.
+    start_block: 66559947
+    contracts:
+      - name: EmotePay
+        address: "0x039dd378eDD477aa7cd200953254a52D44f844A3"

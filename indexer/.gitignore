@@ -1,0 +1,6 @@
+.env
+.env.*
+!.env.example
+.envio/
+envio-env.d.ts
+node_modules/

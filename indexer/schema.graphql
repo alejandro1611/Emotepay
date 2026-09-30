@@ -1,0 +1,37 @@
+type Donation {
+  id: ID!
+  donor: String! @index
+  creator: String! @index
+  amount: BigInt!
+  emoteId: BigInt! @index
+  transactionHash: String! @index
+  blockNumber: BigInt! @index
+  logIndex: Int!
+  timestamp: BigInt! @index
+}
+
+type Creator {
+  id: ID!
+  totalDonationsCount: Int!
+  totalAmountReceived: BigInt!
+  uniqueDonorsCount: Int!
+}
+
+type CreatorDonor {
+  id: ID!
+  creator: String! @index
+  donor: String! @index
+}
+
+type Donor {
+  id: ID!
+  donationCount: Int!
+  totalDonated: BigInt!
+}
+
+type Emote {
+  id: ID!
+  emoteId: BigInt!
+  usageCount: Int!
+  totalAmount: BigInt!
+}
