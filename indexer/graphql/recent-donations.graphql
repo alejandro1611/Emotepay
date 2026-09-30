@@ -1,0 +1,17 @@
+query RecentDonations($creator: String!, $limit: Int = 20) {
+  Donation(
+    where: { creator: { _eq: $creator } }
+    order_by: [{ blockNumber: desc }, { logIndex: desc }]
+    limit: $limit
+  ) {
+    id
+    donor
+    creator
+    amount
+    emoteId
+    transactionHash
+    blockNumber
+    logIndex
+    timestamp
+  }
+}

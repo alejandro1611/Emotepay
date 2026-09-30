@@ -1,0 +1,7 @@
+query TopSupporters($limit: Int = 10) {
+  Donor(order_by: [{ totalDonated: desc }], limit: $limit) {
+    id
+    donationCount
+    totalDonated
+  }
+}

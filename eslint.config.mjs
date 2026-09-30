@@ -13,6 +13,9 @@ const eslintConfig = defineConfig([
     "build/**",
     "artifacts/**",
     "cache/**",
+    "indexer/.envio/**",
+    "indexer/envio-env.d.ts",
+    "indexer/node_modules/**",
     "next-env.d.ts",
   ]),
 ]);
