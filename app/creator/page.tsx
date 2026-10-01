@@ -6,7 +6,7 @@ import { BarChart3, ExternalLink, RefreshCw } from "lucide-react";
 import {
   fetchCreatorHistory,
   getCreatorHistoryAddress,
-  getEnvioGraphqlUrl,
+  getEnvioApiUrl,
   type CreatorHistory,
 } from "@/lib/envio";
 import { EMOTES } from "@/lib/emotes";
@@ -52,18 +52,10 @@ export default function CreatorPage() {
   const [historyState, setHistoryState] = useState<HistoryState>({
     status: "idle",
   });
-  const graphqlUrl = getEnvioGraphqlUrl();
+  const envioApiUrl = getEnvioApiUrl();
   const creatorAddress = getCreatorHistoryAddress();
 
   const loadHistory = useCallback(async () => {
-    if (!graphqlUrl) {
-      setHistoryState({
-        status: "unconfigured",
-        reason: "Set NEXT_PUBLIC_ENVIO_GRAPHQL_URL to enable donation history.",
-      });
-      return;
-    }
-
     if (!creatorAddress) {
       setHistoryState({
         status: "unconfigured",
@@ -76,7 +68,7 @@ export default function CreatorPage() {
 
     try {
       const history = await fetchCreatorHistory({
-        graphqlUrl,
+        apiUrl: envioApiUrl,
         creatorAddress,
       });
 
@@ -94,7 +86,7 @@ export default function CreatorPage() {
             : "Unable to load Envio donation history.",
       });
     }
-  }, [creatorAddress, graphqlUrl]);
+  }, [creatorAddress, envioApiUrl]);
 
   useEffect(() => {
     window.setTimeout(loadHistory, 0);

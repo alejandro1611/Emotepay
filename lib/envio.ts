@@ -24,34 +24,8 @@ export type CreatorHistory = {
   donations: EnvioDonation[];
 };
 
-const creatorHistoryQuery = `
-  query CreatorHistory($creator: String!, $creatorId: ID!, $limit: Int = 20) {
-    Creator_by_pk(id: $creatorId) {
-      id
-      totalDonationsCount
-      totalAmountReceived
-      uniqueDonorsCount
-    }
-    Donation(
-      where: { creator: { _eq: $creator } }
-      order_by: [{ blockNumber: desc }, { logIndex: desc }]
-      limit: $limit
-    ) {
-      id
-      donor
-      creator
-      amount
-      emoteId
-      transactionHash
-      blockNumber
-      logIndex
-      timestamp
-    }
-  }
-`;
-
-export function getEnvioGraphqlUrl() {
-  return process.env.NEXT_PUBLIC_ENVIO_GRAPHQL_URL?.trim() || null;
+export function getEnvioApiUrl() {
+  return "/api/envio";
 }
 
 export function getCreatorHistoryAddress() {
@@ -59,49 +33,33 @@ export function getCreatorHistoryAddress() {
 }
 
 export async function fetchCreatorHistory({
-  graphqlUrl,
+  apiUrl,
   creatorAddress,
   limit = 20,
 }: {
-  graphqlUrl: string;
+  apiUrl: string;
   creatorAddress: string;
   limit?: number;
 }): Promise<CreatorHistory> {
-  const response = await fetch(graphqlUrl, {
+  const response = await fetch(apiUrl, {
     method: "POST",
     headers: {
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      query: creatorHistoryQuery,
-      variables: {
-        creator: creatorAddress,
-        creatorId: creatorAddress,
-        limit,
-      },
+      creatorAddress,
+      limit,
     }),
+    cache: "no-store",
   });
 
   if (!response.ok) {
-    throw new Error(`Envio GraphQL returned ${response.status}`);
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+
+    throw new Error(payload?.error || `Envio API returned ${response.status}`);
   }
 
-  const payload = (await response.json()) as {
-    data?: {
-      Creator_by_pk?: EnvioCreatorStats | null;
-      Donation?: EnvioDonation[];
-    };
-    errors?: Array<{ message?: string }>;
-  };
-
-  if (payload.errors?.length) {
-    throw new Error(
-      payload.errors[0]?.message || "Envio GraphQL query failed.",
-    );
-  }
-
-  return {
-    stats: payload.data?.Creator_by_pk ?? null,
-    donations: payload.data?.Donation ?? [],
-  };
+  return response.json() as Promise<CreatorHistory>;
 }
