@@ -1,68 +1,158 @@
-# EmotePay
+# EmotePay Agents
 
-EmotePay is a programmable social-payment layer built on Monad.
+## Project
 
-## Product vision
+This is the original EmotePay Monad/EVM repository for the Monad Metropolis hackathon.
 
-A user should be able to:
+The verified product flow is:
 
-1. Sign in using Google or email.
-2. Receive an embedded wallet automatically through Privy.
-3. Select an emote associated with a payment.
-4. Send the transaction through Monad.
-5. Trigger a real-time visual event for the creator.
-6. Store/index the donation for history and analytics.
+viewer -> Privy authentication -> Privy embedded EVM wallet -> EmotePay Solidity contract -> creator receives MON -> Donation event -> realtime OBS overlay -> Envio creator analytics.
 
-Users should not need to understand:
-- wallets
-- seed phrases
-- gas
-- RPCs
-- transaction hashes
+This repository is not the Solana version of EmotePay. Do not apply Solana-specific rules unless the user explicitly asks for a Solana migration or comparison.
 
-The UX should feel like a Web2 payment application.
+## Current Verified Stack
 
-## Core stack
+- Next.js `16.3.5`
+- React `19.2.8`
+- TypeScript `^5`
+- Privy React Auth `^3.44.0`
+- viem `^2.56.0`
+- wagmi `^3.7.7`
+- Solidity `0.8.28`
+- Hardhat `^3.18.0`
+- Monad Testnet, chain ID `10143`
+- Envio HyperIndex `^3.12.1`
+- Framer Motion `^13.4.0`
+- Tailwind CSS `^4`
+- Lucide React `^1.47.0`
 
-Frontend:
-- React
-- TypeScript/JavaScript
+## Current Implementation Status
 
-Blockchain:
-- Monad
-- Solidity
+### Verified / Complete
 
-Authentication / wallet:
-- Privy
+- Privy authentication is configured in `app/providers.tsx` with Google and email login methods.
+- Privy embedded EVM wallets are configured with `createOnLogin: "users-without-wallets"`.
+- The viewer payment UI in `app/page.tsx` selects fixed emotes from `lib/emotes.ts`.
+- Payment readiness checks authentication, embedded wallet readiness, creator address configuration, contract address configuration, and self-donation.
+- The client switches the embedded wallet to Monad Testnet chain ID `10143`.
+- The client validates balance for donation value plus estimated gas before submitting.
+- The client sends a transaction to `EmotePay.donate(address,uint256)` with native MON value and waits for the receipt.
+- The Solidity contract in `contracts/EmotePay.sol` is non-custodial and forwards all `msg.value` to the creator.
+- Contract tests in `test/EmotePay.ts` verify event emission, exact forwarding, no retained balance, zero-value rejection, zero-address rejection, self-donation rejection, and forwarding failure reverts.
+- The OBS overlay in `app/overlay/page.tsx` watches `Donation` events on Monad Testnet, filters to the configured creator, deduplicates by transaction hash and log index, and animates alerts.
+- Envio indexes the deployed EmotePay contract configured in `indexer/config.yaml` at `0x039dd378eDD477aa7cd200953254a52D44f844A3` from block `66559947`.
+- The creator dashboard in `app/creator/page.tsx` reads donation history through `/api/envio`.
+- The `/api/envio` route uses server-side `ENVIO_GRAPHQL_URL` and `ENVIO_GRAPHQL_ADMIN_SECRET` to query Envio GraphQL and does not expose those secrets to the browser.
 
-RPC / blockchain data:
-- Alchemy
+### Not Implemented Yet / Future Work
 
-Indexing:
-- Envio
+- Alchemy integration is not implemented.
+- No SPEC-007 exists yet.
+- There is no platform custody, platform fee, creator registry, multi-creator routing UI, or admin contract logic.
+- Donation messages are not stored onchain and are not indexed by Envio.
+- The in-page stream preview uses local UI state after a confirmed transaction; the standalone OBS overlay uses onchain events.
 
-Streaming integration:
-- OBS Browser Source
-- WebSocket or SSE
+## Instruction Precedence
 
-## Development principles
+Use this order when instructions conflict:
 
-- Do not rewrite working features unnecessarily.
-- Inspect existing architecture before modifying code.
-- Make small incremental changes.
-- Do not expose private keys or API secrets.
-- Environment variables must live in .env files.
-- Never hardcode wallet private keys.
-- Explain important architectural changes before implementing them.
-- Run the relevant tests/build after modifications.
+1. Explicit user task for the current phase.
+2. `AGENTS.md`.
+3. `docs/PROJECT_STATUS.md`.
+4. `MONAD-RULES.md`.
+5. Authoritative current documentation.
+6. Model memory.
 
-## Current priorities
+Project-specific verified decisions in this file override generic rules in `MONAD-RULES.md`.
 
-1. Privy authentication.
-2. Embedded wallet creation.
-3. Emote payment transaction.
-4. EmotePay smart contract.
-5. Transaction confirmation.
-6. OBS overlay.
-7. Envio indexing.
-8. Alchemy integration.
+## Smart Contract Rules
+
+Preserve the verified EmotePay semantics unless an approved spec changes them:
+
+- Payments are non-custodial.
+- The full `msg.value` is forwarded to the creator.
+- Zero-value donations revert.
+- Self-donations revert.
+- `Donation` is emitted only after successful transfer.
+- The contract does not keep unnecessary onchain history or storage.
+- External call failure reverts.
+- Do not use `tx.origin`.
+- Do not add unnecessary admin, custody, upgrade, fee, or withdrawal logic.
+
+## Transactions
+
+- Use Monad Testnet chain ID `10143` unless an approved spec says otherwise.
+- Validate recipient addresses before sending transactions.
+- Validate payment amount before sending transactions.
+- Validate the configured contract address before sending transactions.
+- Wait for transaction receipt confirmation and check `receipt.status`.
+- Do not blindly retry after a timeout; check transaction status first.
+- Do not deploy to mainnet unless explicitly approved by the user.
+
+## Secrets
+
+Never:
+
+- Request or print private keys.
+- Print deployer secrets.
+- Commit `.env.local` or real `.env` files.
+- Expose deployer keys in `NEXT_PUBLIC_*` variables.
+- Expose server secrets to the browser.
+- Commit secret indexer tokens.
+
+## Testing
+
+- Contract changes must run `npm run test:contracts`.
+- Frontend changes should run the relevant verified commands from `package.json`, usually `npm run lint` and `npm run build`.
+- Envio/indexer changes should run `npm run indexer:codegen` and `npm run indexer:typecheck` when relevant.
+- Do not fix unrelated warnings unless the user asks.
+
+## Spec-Driven Development
+
+Allowed spec states:
+
+- `DRAFT`
+- `REVIEW`
+- `APPROVED`
+- `IMPLEMENTING`
+- `VERIFYING`
+- `COMPLETE`
+- `BLOCKED`
+
+Standard flow:
+
+Spec -> Architect -> Human approval -> Implementer -> Reviewer -> Human approval -> Complete.
+
+Human approval is required for:
+
+- `REVIEW` -> `APPROVED`
+- `VERIFYING` -> `COMPLETE`
+
+Approved specs cannot silently change. If implementation reveals that an approved requirement must change, stop implementation and return the spec to review.
+
+Traceability IDs:
+
+- `REQ-xxx` for functional requirements.
+- `SEC-xxx` for security requirements.
+- `NFR-xxx` for non-functional requirements.
+- `AC-xxx` for acceptance criteria.
+
+Final review must produce PASS/FAIL for every `REQ`, `SEC`, `NFR`, and `AC`.
+
+## Multi-Agent Orchestration
+
+The main Codex agent acts as the orchestrator.
+
+Flow:
+
+Architect -> Human approval -> Implementer -> Reviewer -> Human approval -> Complete.
+
+Rules:
+
+- Architect is read-only.
+- Implementer is the normal writer and works against exactly one approved spec.
+- Reviewer is read-only during review.
+- No parallel writes to the same files.
+- Parallel read-only research is allowed.
+- Agents cannot approve their own work.
+- The user is the final authority.
