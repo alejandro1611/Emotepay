@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertCircle,
   CheckCircle2,
@@ -33,6 +32,10 @@ const monadPublicClient = createPublicClient({
   chain: monadTestnet,
   transport: http(monadTestnet.rpcUrls.default.http[0]),
 });
+const kickChannel = process.env.NEXT_PUBLIC_KICK_CHANNEL?.trim().replace(/^@/, "");
+const kickPlayerUrl = kickChannel
+  ? `https://player.kick.com/${encodeURIComponent(kickChannel)}?autoplay=true&muted=true`
+  : null;
 
 type BalanceCheckState =
   | { status: "idle" }
@@ -148,15 +151,41 @@ function getExplorerTransactionUrl(hash: `0x${string}`) {
   return `https://testnet.monadexplorer.com/tx/${hash}`;
 }
 
+function KickStreamPlayer({ compact = false }: { compact?: boolean }) {
+  const roundedClass = compact ? "rounded-xl" : "rounded-2xl";
+
+  return (
+    <div
+      className={`relative aspect-video ${roundedClass} bg-slate-950 border border-slate-800 overflow-hidden shadow-2xl`}
+    >
+      {kickPlayerUrl ? (
+        <iframe
+          src={kickPlayerUrl}
+          title="Kick livestream"
+          allow="autoplay; fullscreen; picture-in-picture"
+          allowFullScreen
+          className="absolute inset-0 h-full w-full"
+        />
+      ) : (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950 text-slate-500">
+          <Tv
+            className={`${compact ? "w-9 h-9" : "w-14 h-14 sm:w-16 sm:h-16"} stroke-[1] mb-2 opacity-50`}
+          />
+          <p className={compact ? "text-xs" : "text-sm"}>
+            Kick stream not configured
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Home() {
   const { ready, authenticated } = usePrivy();
   const { ready: walletsReady, wallets } = useWallets();
   const { sendTransaction } = useSendTransaction();
   const [selectedEmote, setSelectedEmote] = useState<Emote>(EMOTES[0]);
   const [message, setMessage] = useState("");
-  const [alerts, setAlerts] = useState<
-    Array<{ id: number; emote: Emote; message: string }>
-  >([]);
   const [transactionState, setTransactionState] = useState<TransactionState>({
     status: "idle",
   });
@@ -405,21 +434,6 @@ export default function Home() {
     };
   }, [showSuccessBanner]);
 
-  const triggerDonationAlert = (emote: Emote, alertMessage: string) => {
-    const newAlert = {
-      id: Date.now(),
-      emote,
-      message: alertMessage.trim(),
-    };
-
-    setAlerts((prev) => [newAlert, ...prev]);
-    setMessage("");
-
-    setTimeout(() => {
-      setAlerts((prev) => prev.filter((a) => a.id !== newAlert.id));
-    }, 4000);
-  };
-
   const handleSendReaction = async (e: React.FormEvent) => {
     e.preventDefault();
     setShowSuccessBanner(false);
@@ -444,7 +458,6 @@ export default function Home() {
       return;
     }
 
-    const donationMessage = message;
     const value = parseEther(selectedEmote.amountMon);
 
     try {
@@ -513,7 +526,7 @@ export default function Home() {
 
       setTransactionState({ status: "success", reference: hash });
       setShowSuccessBanner(true);
-      triggerDonationAlert(selectedEmote, donationMessage);
+      setMessage("");
     } catch (error) {
       setTransactionState({
         status: "failure",
@@ -581,51 +594,10 @@ export default function Home() {
                   Stream preview
                 </p>
                 <span className="text-[11px] text-purple-300">
-                  After confirmation
+                  Live on Kick
                 </span>
               </div>
-              <div className="relative aspect-video rounded-xl bg-slate-950 border border-slate-800 overflow-hidden flex items-center justify-center">
-                <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-950 to-purple-950/40 flex flex-col items-center justify-center text-slate-600">
-                  <Tv className="w-9 h-9 stroke-[1] mb-1 opacity-40" />
-                  <p className="text-xs">Live stream preview</p>
-                </div>
-
-                <AnimatePresence>
-                  {alerts.map((alert) => (
-                    <motion.div
-                      key={alert.id}
-                      initial={{ opacity: 0, scale: 0.5, y: 30 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.8, y: -24 }}
-                      transition={{
-                        type: "spring",
-                        stiffness: 300,
-                        damping: 20,
-                      }}
-                      className="absolute z-20 flex flex-col items-center text-center rounded-xl bg-slate-900/90 border border-purple-500/40 px-4 py-3 shadow-xl shadow-purple-500/20 max-w-[220px]"
-                    >
-                      <motion.span
-                        animate={{
-                          rotate: [0, -10, 10, -10, 0],
-                          scale: [1, 1.16, 1],
-                        }}
-                        transition={{ repeat: Infinity, duration: 1.5 }}
-                        className="text-4xl mb-1"
-                      >
-                        {alert.emote.emoji}
-                      </motion.span>
-                      <div className="text-[11px] font-bold uppercase tracking-wider text-purple-300">
-                        {alert.emote.name} ({alert.emote.displayAmount})
-                      </div>
-                      {alert.message.trim() && (
-                        <p className="mt-1 max-w-full overflow-hidden text-xs font-medium leading-snug text-slate-200 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
-                          &quot;{alert.message}&quot;
-                        </p>
-                      )}
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-              </div>
+              <KickStreamPlayer compact />
             </div>
 
             <div className="mb-5">
@@ -830,48 +802,11 @@ export default function Home() {
               Stream preview
             </h2>
             <span className="text-xs bg-purple-500/10 text-purple-300 px-2.5 py-1 rounded-full border border-purple-500/20">
-              Preview after confirmation
+              Live on Kick
             </span>
           </div>
 
-          <div className="relative aspect-video rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden shadow-2xl flex items-center justify-center">
-            <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-950 to-purple-950/40 flex flex-col items-center justify-center text-slate-600">
-              <Tv className="w-14 h-14 sm:w-16 sm:h-16 stroke-[1] mb-2 opacity-40" />
-              <p className="text-sm">Live stream preview</p>
-            </div>
-
-            <AnimatePresence>
-              {alerts.map((alert) => (
-                <motion.div
-                  key={alert.id}
-                  initial={{ opacity: 0, scale: 0.5, y: 50 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.8, y: -40 }}
-                  transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                  className="absolute z-20 flex flex-col items-center text-center p-5 sm:p-6 rounded-2xl bg-slate-900/90 border border-purple-500/40 backdrop-blur-xl shadow-2xl shadow-purple-500/30 max-w-xs"
-                >
-                  <motion.span
-                    animate={{
-                      rotate: [0, -10, 10, -10, 0],
-                      scale: [1, 1.2, 1],
-                    }}
-                    transition={{ repeat: Infinity, duration: 1.5 }}
-                    className="text-5xl sm:text-6xl mb-2"
-                  >
-                    {alert.emote.emoji}
-                  </motion.span>
-                  <div className="text-xs font-bold uppercase tracking-wider text-purple-400 mb-1">
-                    {alert.emote.name} ({alert.emote.displayAmount})
-                  </div>
-                  {alert.message.trim() && (
-                    <p className="text-sm font-medium text-slate-200">
-                      &quot;{alert.message}&quot;
-                    </p>
-                  )}
-                </motion.div>
-              ))}
-            </AnimatePresence>
-          </div>
+          <KickStreamPlayer />
         </section>
       </div>
     </main>
