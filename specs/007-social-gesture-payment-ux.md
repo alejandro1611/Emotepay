@@ -228,74 +228,74 @@ Expected implementation must not touch unless a later approved spec changes scop
 
 ### AC-001
 
-Given the viewer opens the payment page on desktop  
-When the page renders  
+Given the viewer opens the payment page on desktop
+When the page renders
 Then creator identity, reaction selection, and the send action are visually primary over blockchain implementation details.
 
 ### AC-002
 
-Given the viewer opens the payment page on a common mobile viewport  
-When the page renders  
+Given the viewer opens the payment page on a common mobile viewport
+When the page renders
 Then creator or stream context appears before reaction controls, and the viewer can quickly select a reaction, see the exact MON amount, and reach the send action without layout overlap.
 
 ### AC-003
 
-Given a reaction is selected  
-When the viewer reviews the send action  
+Given a reaction is selected
+When the viewer reviews the send action
 Then the selected reaction name and exact MON amount are visible before submission.
 
 ### AC-004
 
-Given the creator identity is displayed  
-When the primary payment flow is shown  
+Given the creator identity is displayed
+When the primary payment flow is shown
 Then the creator display name, handle, or contextual identity is primary and the wallet address is not primary.
 
 ### AC-005
 
-Given the viewer is not authenticated  
-When they attempt to send a reaction  
+Given the viewer is not authenticated
+When they attempt to send a reaction
 Then the UI guides them through Privy login without presenting wallet internals as the primary task.
 
 ### AC-006
 
-Given payment is awaiting approval, submitting, or confirming  
-When the viewer tries to send again  
+Given payment is awaiting approval, submitting, or confirming
+When the viewer tries to send again
 Then duplicate submission is prevented.
 
 ### AC-007
 
-Given a payment receipt is confirmed successful  
-When the success state renders  
+Given a payment receipt is confirmed successful
+When the success state renders
 Then the UI communicates that the reaction was sent, the creator was supported, and confirmation completed.
 
 ### AC-008
 
-Given an insufficient balance, unavailable wallet, rejected transaction, reverted transaction, network problem, or invalid configuration  
-When the error state renders  
+Given an insufficient balance, unavailable wallet, rejected transaction, reverted transaction, network problem, or invalid configuration
+When the error state renders
 Then the primary message is understandable to a non-Web3 user and does not rely on raw technical errors.
 
 ### AC-009
 
-Given the viewer opens a secondary advanced-details disclosure after or around confirmation  
-When transaction metadata is available  
+Given the viewer opens a secondary advanced-details disclosure after or around confirmation
+When transaction metadata is available
 Then network, transaction hash, explorer link, and relevant wallet or contract details may be shown as secondary details.
 
 ### AC-010
 
-Given missing or invalid creator or contract configuration  
-When the page renders  
+Given missing or invalid creator or contract configuration
+When the page renders
 Then sending is unavailable and a clear configuration state is shown.
 
 ### AC-011
 
-Given the OBS overlay receives donation events  
-When this UX spec is implemented  
+Given the OBS overlay receives donation events
+When this UX spec is implemented
 Then OBS alert behavior remains triggered only by confirmed onchain donation events.
 
 ### AC-012
 
-Given the four current verified reactions are displayed  
-When the viewer reviews the options  
+Given the four current verified reactions are displayed
+When the viewer reviews the options
 Then each reaction preserves its existing MON amount and clearly presents reaction, human-readable reaction name, and exact MON amount.
 
 ## Automated Validation
