@@ -2,20 +2,28 @@
 
 ## Status
 
-APPROVED
+COMPLETE
 
 ## Approval Record
 
 Architecture review: PASS
 Architect recommendation: RECOMMEND APPROVAL
 Human approval: Explicitly granted in conversation after architecture review
-Implementation status: NOT STARTED
+Implementation status: COMPLETED
+Human smoke testing: COMPLETED
+Independent verification: PASSED
+Final human approval: Explicitly granted in conversation after final independent verification
 
 State history:
 
 - DRAFT: Initial prospective specification drafted.
 - REVIEW: Independent Architect reviewed the draft and recommended approval.
 - APPROVED: Human approval explicitly granted after architecture review.
+- IMPLEMENTING: Implementer began the approved viewer UX work.
+- VERIFYING: Implementation finished, human smoke testing completed, and independent verification is in progress.
+- IMPLEMENTING: Human final browser review found an empty optional-message preview fallback issue, requiring a scoped production fix before final approval.
+- VERIFYING: Final optional-message behavior was corrected so empty or whitespace-only messages render no fallback content, real optional messages still render, desktop and mobile smoke testing passed, and final independent verification is required again.
+- COMPLETE: Implementation completed, human smoke testing completed, independent Reviewer verification passed, and final human approval was explicitly granted.
 
 ## Goal
 

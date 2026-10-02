@@ -45,7 +45,7 @@ export function AuthButton() {
   const walletAddress = embeddedWalletAddress ?? fallbackWallet?.address;
   const walletStatus = embeddedWalletAddress
     ? "Embedded wallet ready"
-    : "Wallet pending";
+    : "Preparing wallet";
 
   if (!ready) {
     return (
@@ -76,7 +76,7 @@ export function AuthButton() {
     <div className="flex items-center gap-3">
       <div className="hidden sm:flex flex-col items-end leading-tight">
         <span className="text-xs font-semibold text-emerald-300">
-          Authenticated
+          Signed in
         </span>
         <span className="text-[11px] text-slate-400">
           {walletsReady ? walletStatus : "Loading wallet..."}
@@ -84,7 +84,8 @@ export function AuthButton() {
       </div>
       <div className="text-sm font-medium px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-2">
         <Wallet className="w-4 h-4 text-purple-400" />
-        <span>{shortenAddress(walletAddress)}</span>
+        <span className="hidden sm:inline">Ready</span>
+        <span className="sr-only">{shortenAddress(walletAddress)}</span>
       </div>
       <button
         type="button"
