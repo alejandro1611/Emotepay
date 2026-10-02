@@ -1,18 +1,25 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Send, Tv, Zap } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  AlertCircle,
+  CheckCircle2,
+  ExternalLink,
+  Loader2,
+  Radio,
+  Send,
+  Sparkles,
+  Tv,
+  Zap,
+} from "lucide-react";
 import { usePrivy, useSendTransaction, useWallets } from "@privy-io/react-auth";
 import { AuthButton } from "@/components/AuthButton";
+import { monadTestnet } from "@/lib/chains";
 import { emotePayContract } from "@/lib/contracts";
 import { demoCreator } from "@/lib/creator";
 import { EMOTES, type Emote } from "@/lib/emotes";
-import {
-  getPaymentReadinessState,
-  type PaymentState,
-} from "@/lib/payment";
-import { monadTestnet } from "@/lib/chains";
+import { getPaymentReadinessState } from "@/lib/payment";
 import {
   createPublicClient,
   encodeFunctionData,
@@ -34,6 +41,14 @@ type BalanceCheckState =
   | { status: "insufficient"; reason: string }
   | { status: "error"; reason: string };
 
+type TransactionState =
+  | { status: "idle" }
+  | { status: "awaiting-approval" }
+  | { status: "submitting" }
+  | { status: "confirming"; hash: `0x${string}` }
+  | { status: "success"; reference: `0x${string}` }
+  | { status: "failure"; reason: string };
+
 function getEmbeddedWallet(
   wallets: ReturnType<typeof useWallets>["wallets"],
 ) {
@@ -45,30 +60,62 @@ function getEmbeddedWallet(
   );
 }
 
+function shortenAddress(address?: string | null) {
+  if (!address) {
+    return "Unavailable";
+  }
+
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
 function getTransactionErrorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   const lowerMessage = message.toLowerCase();
 
-  if (lowerMessage.includes("user rejected")) {
-    return "Transaction rejected by user.";
+  if (
+    lowerMessage.includes("user rejected") ||
+    lowerMessage.includes("user denied") ||
+    lowerMessage.includes("rejected")
+  ) {
+    return "You cancelled the wallet approval. No reaction was sent.";
   }
 
   if (
     lowerMessage.includes("insufficient") ||
     lowerMessage.includes("exceeds balance")
   ) {
-    return "Insufficient MON balance.";
+    return "Your embedded wallet needs more Monad Testnet MON to send this reaction.";
   }
 
   if (lowerMessage.includes("revert")) {
-    return "Donation transaction reverted.";
+    return "Monad did not complete this payment, so the reaction was not sent.";
   }
 
-  if (lowerMessage.includes("fetch") || lowerMessage.includes("network")) {
-    return "RPC request failed. Please try again.";
+  if (
+    lowerMessage.includes("fetch") ||
+    lowerMessage.includes("network") ||
+    lowerMessage.includes("rpc")
+  ) {
+    return "We could not reach Monad Testnet. Please check your connection and try again.";
   }
 
-  return "Donation transaction failed.";
+  return "We could not send that reaction. Please try again when you are ready.";
+}
+
+function getReadinessMessage(reason: string) {
+  if (reason.includes("Creator wallet")) {
+    return "This creator is not ready to receive reactions yet.";
+  }
+
+  if (reason.includes("contract")) {
+    return "EmotePay payments are not configured for this page yet.";
+  }
+
+  if (reason.includes("Embedded wallet")) {
+    return "Your embedded wallet is still being prepared. Please wait a moment.";
+  }
+
+  return reason;
 }
 
 async function getRequiredDonationBalance({
@@ -97,27 +144,32 @@ async function getRequiredDonationBalance({
   return value + gas * gasPrice;
 }
 
+function getExplorerTransactionUrl(hash: `0x${string}`) {
+  return `https://testnet.monadexplorer.com/tx/${hash}`;
+}
+
 export default function Home() {
   const { ready, authenticated } = usePrivy();
   const { ready: walletsReady, wallets } = useWallets();
   const { sendTransaction } = useSendTransaction();
   const [selectedEmote, setSelectedEmote] = useState<Emote>(EMOTES[0]);
   const [message, setMessage] = useState("");
-  const [alerts, setAlerts] = useState<Array<{ id: number; emote: Emote; message: string }>>([]);
-  const [transactionState, setTransactionState] = useState<PaymentState>({
+  const [alerts, setAlerts] = useState<
+    Array<{ id: number; emote: Emote; message: string }>
+  >([]);
+  const [transactionState, setTransactionState] = useState<TransactionState>({
     status: "idle",
   });
   const [balanceCheck, setBalanceCheck] = useState<BalanceCheckState>({
     status: "idle",
   });
+  const [showSuccessBanner, setShowSuccessBanner] = useState(false);
+
   const embeddedWallet = useMemo(() => getEmbeddedWallet(wallets), [wallets]);
   const embeddedWalletAddress = embeddedWallet?.address as Address | undefined;
   const isSelfDonation =
     Boolean(embeddedWalletAddress && demoCreator.walletAddress) &&
-    isAddressEqual(
-      embeddedWalletAddress!,
-      demoCreator.walletAddress as Address,
-    );
+    isAddressEqual(embeddedWalletAddress!, demoCreator.walletAddress as Address);
   const readinessState = getPaymentReadinessState({
     authReady: ready,
     authenticated,
@@ -127,15 +179,6 @@ export default function Home() {
     contractStatus: emotePayContract.configurationStatus,
     isSelfDonation,
   });
-  const paymentState =
-    transactionState.status === "pending" ||
-    transactionState.status === "success"
-      ? transactionState
-      : readinessState.status === "ready"
-        ? readinessState
-        : transactionState.status === "error"
-        ? transactionState
-        : readinessState;
   const effectiveBalanceCheck: BalanceCheckState =
     readinessState.status === "ready" ? balanceCheck : { status: "idle" };
   const balanceCheckMessage =
@@ -143,22 +186,143 @@ export default function Home() {
     effectiveBalanceCheck.status === "error"
       ? effectiveBalanceCheck.reason
       : null;
+  const isActivePayment =
+    transactionState.status === "awaiting-approval" ||
+    transactionState.status === "submitting" ||
+    transactionState.status === "confirming";
   const canSendReaction =
     readinessState.status === "ready" &&
-    paymentState.status !== "pending" &&
+    !isActivePayment &&
     effectiveBalanceCheck.status === "ready";
-  const sendButtonLabel =
-    paymentState.status === "pending"
-      ? "Confirming reaction..."
-      : effectiveBalanceCheck.status === "checking"
-        ? "Checking wallet balance..."
-        : effectiveBalanceCheck.status === "insufficient"
-          ? "Wallet needs testnet MON"
-          : canSendReaction
-            ? `Send ${selectedEmote.name} (${selectedEmote.displayAmount})`
-            : authenticated
-              ? "Payments not ready"
-              : "Log in to send reaction";
+  const selectedAmountLabel = selectedEmote.displayAmount;
+  const lastHash =
+    transactionState.status === "confirming"
+      ? transactionState.hash
+      : transactionState.status === "success"
+        ? transactionState.reference
+        : undefined;
+  const paymentNotice = (() => {
+    if (!ready) {
+      return {
+        tone: "neutral",
+        title: "Getting EmotePay ready",
+        body: "Loading sign-in so you can send a reaction.",
+      };
+    }
+
+    if (!authenticated) {
+      return {
+        tone: "neutral",
+        title: "Ready when you sign in",
+        body: "Use Google or email to send this reaction with an embedded wallet.",
+      };
+    }
+
+    if (transactionState.status === "awaiting-approval") {
+      return {
+        tone: "active",
+        title: "Awaiting approval",
+        body: "Approve this reaction in your wallet to continue.",
+      };
+    }
+
+    if (transactionState.status === "submitting") {
+      return {
+        tone: "active",
+        title: "Submitting reaction",
+        body: "Sending your reaction payment to Monad Testnet.",
+      };
+    }
+
+    if (transactionState.status === "confirming") {
+      return {
+        tone: "active",
+        title: "Confirming on Monad",
+        body: "Your reaction is waiting for payment confirmation.",
+      };
+    }
+
+    if (transactionState.status === "success") {
+      if (showSuccessBanner) {
+        return {
+          tone: "success",
+          title: "Reaction sent",
+          body: "Your support was confirmed and the stream reaction is now live.",
+        };
+      }
+
+      return null;
+    }
+
+    if (transactionState.status === "failure") {
+      return {
+        tone: "error",
+        title: "Reaction not sent",
+        body: transactionState.reason,
+      };
+    }
+
+    if (readinessState.status === "error") {
+      return {
+        tone: "error",
+        title: "Sending is unavailable",
+        body: getReadinessMessage(readinessState.reason),
+      };
+    }
+
+    if (effectiveBalanceCheck.status === "checking") {
+      return {
+        tone: "active",
+        title: "Checking wallet",
+        body: "Making sure your embedded wallet can cover the reaction.",
+      };
+    }
+
+    if (balanceCheckMessage) {
+      return {
+        tone: "error",
+        title: "Wallet needs MON",
+        body: balanceCheckMessage,
+      };
+    }
+
+    return {
+      tone: "success",
+      title: "Ready to send",
+      body: `You are sending ${selectedEmote.name} for exactly ${selectedAmountLabel}.`,
+    };
+  })();
+  const sendButtonLabel = (() => {
+    if (transactionState.status === "awaiting-approval") {
+      return "Approve in wallet";
+    }
+
+    if (transactionState.status === "submitting") {
+      return "Submitting reaction";
+    }
+
+    if (transactionState.status === "confirming") {
+      return "Confirming payment";
+    }
+
+    if (effectiveBalanceCheck.status === "checking") {
+      return "Checking wallet";
+    }
+
+    if (effectiveBalanceCheck.status === "insufficient") {
+      return "Wallet needs testnet MON";
+    }
+
+    if (!authenticated) {
+      return "Log in to send reaction";
+    }
+
+    if (!canSendReaction) {
+      return "Sending unavailable";
+    }
+
+    return `Send ${selectedEmote.name}`;
+  })();
 
   useEffect(() => {
     if (
@@ -200,14 +364,16 @@ export default function Home() {
             ? { status: "ready" }
             : {
                 status: "insufficient",
-                reason: "Your wallet needs Monad Testnet MON.",
+                reason:
+                  "Your embedded wallet needs more Monad Testnet MON to send this reaction.",
               },
         );
       } catch {
         if (!isCancelled) {
           setBalanceCheck({
             status: "error",
-            reason: "Unable to check wallet balance right now.",
+            reason:
+              "We could not check your wallet balance. Please try again shortly.",
           });
         }
       }
@@ -225,11 +391,25 @@ export default function Home() {
     selectedEmote.onchainId,
   ]);
 
+  useEffect(() => {
+    if (!showSuccessBanner) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setShowSuccessBanner(false);
+    }, 3000);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [showSuccessBanner]);
+
   const triggerDonationAlert = (emote: Emote, alertMessage: string) => {
     const newAlert = {
       id: Date.now(),
       emote,
-      message: alertMessage || "¡Grandioso stream! 🔥",
+      message: alertMessage.trim(),
     };
 
     setAlerts((prev) => [newAlert, ...prev]);
@@ -242,20 +422,24 @@ export default function Home() {
 
   const handleSendReaction = async (e: React.FormEvent) => {
     e.preventDefault();
+    setShowSuccessBanner(false);
 
     if (!canSendReaction) {
-      setTransactionState(
-        balanceCheckMessage
-          ? { status: "error", reason: balanceCheckMessage }
-          : readinessState,
-      );
+      setTransactionState({
+        status: "failure",
+        reason:
+          balanceCheckMessage ??
+          (readinessState.status === "error"
+            ? getReadinessMessage(readinessState.reason)
+            : "This reaction is not ready to send yet."),
+      });
       return;
     }
 
     if (!embeddedWallet || !demoCreator.walletAddress || !emotePayContract.address) {
       setTransactionState({
-        status: "error",
-        reason: "Payment configuration is not ready.",
+        status: "failure",
+        reason: "This payment page is not configured yet.",
       });
       return;
     }
@@ -264,7 +448,7 @@ export default function Home() {
     const value = parseEther(selectedEmote.amountMon);
 
     try {
-      setTransactionState({ status: "pending" });
+      setTransactionState({ status: "awaiting-approval" });
 
       await embeddedWallet.switchChain(monadTestnet.id);
 
@@ -280,13 +464,15 @@ export default function Home() {
       });
 
       if (balance < requiredBalance) {
+        const reason =
+          "Your embedded wallet needs more Monad Testnet MON to send this reaction.";
         setBalanceCheck({
           status: "insufficient",
-          reason: "Your wallet needs Monad Testnet MON.",
+          reason,
         });
         setTransactionState({
-          status: "error",
-          reason: "Your wallet needs Monad Testnet MON.",
+          status: "failure",
+          reason,
         });
         return;
       }
@@ -296,6 +482,9 @@ export default function Home() {
         functionName: "donate",
         args: [demoCreator.walletAddress, BigInt(selectedEmote.onchainId)],
       });
+
+      setTransactionState({ status: "submitting" });
+
       const { hash } = await sendTransaction(
         {
           to: emotePayContract.address,
@@ -308,7 +497,7 @@ export default function Home() {
         },
       );
 
-      setTransactionState({ status: "pending", hash });
+      setTransactionState({ status: "confirming", hash });
 
       const receipt = await monadPublicClient.waitForTransactionReceipt({
         hash,
@@ -316,32 +505,28 @@ export default function Home() {
 
       if (receipt.status !== "success") {
         setTransactionState({
-          status: "error",
-          reason: "Donation transaction reverted.",
+          status: "failure",
+          reason: "Monad did not complete this payment, so the reaction was not sent.",
         });
         return;
       }
 
       setTransactionState({ status: "success", reference: hash });
+      setShowSuccessBanner(true);
       triggerDonationAlert(selectedEmote, donationMessage);
     } catch (error) {
       setTransactionState({
-        status: "error",
+        status: "failure",
         reason: getTransactionErrorMessage(error),
       });
     }
   };
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white font-sans selection:bg-purple-500 selection:text-white relative overflow-hidden">
-      {/* Background Gradients */}
-      <div className="absolute top-0 left-1/4 w-96 h-96 bg-purple-600/20 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-blue-600/20 rounded-full blur-3xl pointer-events-none" />
-
-      {/* Header / Navbar */}
-      <header className="border-b border-slate-800/80 backdrop-blur-md bg-slate-950/50 sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+    <main className="min-h-screen bg-slate-950 text-white font-sans selection:bg-purple-500 selection:text-white">
+      <header className="border-b border-slate-800/80 bg-slate-950/95 sticky top-0 z-50">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <div className="p-2 bg-gradient-to-tr from-purple-600 to-indigo-500 rounded-xl shadow-lg shadow-purple-500/20">
               <Zap className="w-5 h-5 text-white" />
             </div>
@@ -349,39 +534,306 @@ export default function Home() {
               Emote<span className="text-purple-400">Pay</span>
             </span>
           </div>
-          <div className="flex items-center gap-3">
-            <button className="text-sm font-medium px-4 py-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-purple-500/50 transition-all flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              Monad Testnet
-            </button>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="hidden sm:flex text-xs font-medium px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 items-center gap-2 text-slate-300">
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              Testnet
+            </div>
             <AuthButton />
           </div>
         </div>
       </header>
 
-      {/* Main Content Layout */}
-      <div className="max-w-6xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
-        {/* Stream Simulator & Overlay (Left Column - 7 Cols) */}
-        <div className="lg:col-span-7 flex flex-col gap-4">
-          <div className="flex items-center justify-between">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
+        <section className="lg:col-span-5 lg:order-2 flex flex-col gap-5">
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl">
+            <div className="mb-5 rounded-xl border border-emerald-400/20 bg-emerald-400/10 p-3">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-amber-400 to-purple-500 flex items-center justify-center text-lg font-black text-slate-950 shrink-0">
+                  {demoCreator.displayName.slice(0, 1)}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-emerald-300 flex items-center gap-2">
+                    <Radio className="w-3.5 h-3.5" />
+                    Live creator
+                  </p>
+                  <p className="truncate text-base font-black text-white">
+                    {demoCreator.displayName}
+                  </p>
+                </div>
+              </div>
+              <p className="mt-2 text-sm text-emerald-50/80">
+                Your reaction supports this creator after the payment is
+                confirmed.
+              </p>
+            </div>
+
+            <div className="lg:hidden mb-5">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                  <Tv className="w-3.5 h-3.5 text-purple-400" />
+                  Stream preview
+                </p>
+                <span className="text-[11px] text-purple-300">
+                  After confirmation
+                </span>
+              </div>
+              <div className="relative aspect-video rounded-xl bg-slate-950 border border-slate-800 overflow-hidden flex items-center justify-center">
+                <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-950 to-purple-950/40 flex flex-col items-center justify-center text-slate-600">
+                  <Tv className="w-9 h-9 stroke-[1] mb-1 opacity-40" />
+                  <p className="text-xs">Live stream preview</p>
+                </div>
+
+                <AnimatePresence>
+                  {alerts.map((alert) => (
+                    <motion.div
+                      key={alert.id}
+                      initial={{ opacity: 0, scale: 0.5, y: 30 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.8, y: -24 }}
+                      transition={{
+                        type: "spring",
+                        stiffness: 300,
+                        damping: 20,
+                      }}
+                      className="absolute z-20 flex flex-col items-center text-center rounded-xl bg-slate-900/90 border border-purple-500/40 px-4 py-3 shadow-xl shadow-purple-500/20 max-w-[220px]"
+                    >
+                      <motion.span
+                        animate={{
+                          rotate: [0, -10, 10, -10, 0],
+                          scale: [1, 1.16, 1],
+                        }}
+                        transition={{ repeat: Infinity, duration: 1.5 }}
+                        className="text-4xl mb-1"
+                      >
+                        {alert.emote.emoji}
+                      </motion.span>
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-purple-300">
+                        {alert.emote.name} ({alert.emote.displayAmount})
+                      </div>
+                      {alert.message.trim() && (
+                        <p className="mt-1 max-w-full overflow-hidden text-xs font-medium leading-snug text-slate-200 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+                          &quot;{alert.message}&quot;
+                        </p>
+                      )}
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+            </div>
+
+            <div className="mb-5">
+              <h1 className="text-2xl font-black text-white leading-tight">
+                Send a reaction
+              </h1>
+              <p className="text-sm text-slate-400 mt-1">
+                Choose a reaction that carries value. You will see the exact MON
+                amount before approval.
+              </p>
+            </div>
+
+            <form onSubmit={handleSendReaction} className="flex flex-col gap-5">
+              <div>
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                    Pick a reaction
+                  </label>
+                  <span className="text-[11px] text-slate-500">
+                    Fixed demo amounts
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {EMOTES.map((emote) => {
+                    const isSelected = selectedEmote.id === emote.id;
+
+                    return (
+                      <button
+                        type="button"
+                        key={emote.id}
+                        onClick={() => setSelectedEmote(emote)}
+                        disabled={isActivePayment}
+                        aria-pressed={isSelected}
+                        className={`min-h-28 p-3 rounded-xl border transition-all flex flex-col items-start justify-between text-left disabled:cursor-not-allowed disabled:opacity-70 ${
+                          isSelected
+                            ? "bg-purple-600/15 border-purple-400 shadow-lg shadow-purple-500/10"
+                            : "bg-slate-950/60 border-slate-800 hover:border-slate-700"
+                        }`}
+                      >
+                        <span className="text-3xl leading-none">
+                          {emote.emoji}
+                        </span>
+                        <span>
+                          <span className="block text-sm font-bold text-slate-100">
+                            {emote.name}
+                          </span>
+                          <span className="block text-xs font-semibold text-purple-300">
+                            {emote.displayAmount}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block">
+                  Message optional
+                </label>
+                <input
+                  type="text"
+                  maxLength={80}
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  disabled={isActivePayment}
+                  placeholder="Great play!"
+                  className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-purple-500 transition-colors disabled:opacity-60"
+                />
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-xs text-slate-500">You are sending</p>
+                    <p className="text-base font-bold text-white">
+                      {selectedEmote.emoji} {selectedEmote.name}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-slate-500">Exact amount</p>
+                    <p className="text-base font-black text-emerald-300">
+                      {selectedAmountLabel}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={!canSendReaction}
+                className={`w-full py-3.5 px-5 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 shadow-lg bg-gradient-to-r ${selectedEmote.color} hover:opacity-95 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed`}
+              >
+                {isActivePayment ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
+                {sendButtonLabel}
+              </button>
+
+              {paymentNotice && (
+                <div
+                  role={paymentNotice.tone === "error" ? "alert" : "status"}
+                  aria-live={
+                    paymentNotice.tone === "error" ? "assertive" : "polite"
+                  }
+                  className={`rounded-xl border p-4 ${
+                    paymentNotice.tone === "success"
+                      ? "bg-emerald-500/10 border-emerald-500/30"
+                      : paymentNotice.tone === "error"
+                        ? "bg-amber-500/10 border-amber-500/30"
+                        : paymentNotice.tone === "active"
+                          ? "bg-purple-500/10 border-purple-500/30"
+                          : "bg-slate-950/70 border-slate-800"
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    {paymentNotice.tone === "success" ? (
+                      <CheckCircle2 className="w-5 h-5 text-emerald-300 mt-0.5 shrink-0" />
+                    ) : paymentNotice.tone === "error" ? (
+                      <AlertCircle className="w-5 h-5 text-amber-300 mt-0.5 shrink-0" />
+                    ) : paymentNotice.tone === "active" ? (
+                      <Loader2 className="w-5 h-5 text-purple-300 mt-0.5 shrink-0 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-5 h-5 text-slate-400 mt-0.5 shrink-0" />
+                    )}
+                    <div>
+                      <p className="text-sm font-bold text-white">
+                        {paymentNotice.title}
+                      </p>
+                      <p className="text-sm text-slate-300 mt-1">
+                        {paymentNotice.body}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <details className="group rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3">
+                <summary className="cursor-pointer list-none text-sm font-semibold text-slate-300 flex items-center justify-between gap-3">
+                  Transaction details
+                  <span className="text-xs text-slate-500 group-open:hidden">
+                    Show
+                  </span>
+                  <span className="hidden text-xs text-slate-500 group-open:inline">
+                    Hide
+                  </span>
+                </summary>
+                <dl className="mt-4 grid grid-cols-1 gap-3 text-xs">
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-slate-500">Network</dt>
+                    <dd className="text-slate-300">
+                      {monadTestnet.name} ({monadTestnet.id})
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-slate-500">Your wallet</dt>
+                    <dd className="font-mono text-slate-300">
+                      {shortenAddress(embeddedWalletAddress)}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-slate-500">Creator wallet</dt>
+                    <dd className="font-mono text-slate-300">
+                      {shortenAddress(demoCreator.walletAddress)}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-slate-500">Contract</dt>
+                    <dd className="font-mono text-slate-300">
+                      {shortenAddress(emotePayContract.address)}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-slate-500">Transaction</dt>
+                    <dd className="font-mono text-slate-300">
+                      {lastHash ? shortenAddress(lastHash) : "Pending send"}
+                    </dd>
+                  </div>
+                  {lastHash && (
+                    <a
+                      href={getExplorerTransactionUrl(lastHash)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-purple-300 hover:text-purple-200 inline-flex items-center gap-1"
+                    >
+                      View on Monad explorer
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                </dl>
+              </details>
+            </form>
+          </div>
+        </section>
+
+        <section className="hidden lg:col-span-7 lg:order-1 lg:flex flex-col gap-4">
+          <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-              <Tv className="w-4 h-4 text-purple-400" /> Stream Overlay Preview
+              <Tv className="w-4 h-4 text-purple-400" />
+              Stream preview
             </h2>
-            <span className="text-xs bg-purple-500/10 text-purple-400 px-2.5 py-1 rounded-full border border-purple-500/20">
-              OBS Live Feed
+            <span className="text-xs bg-purple-500/10 text-purple-300 px-2.5 py-1 rounded-full border border-purple-500/20">
+              Preview after confirmation
             </span>
           </div>
 
-          {/* Stream Video Screen Mockup */}
           <div className="relative aspect-video rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden shadow-2xl flex items-center justify-center">
-            {/* Stream Background Mockup */}
             <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-950 to-purple-950/40 flex flex-col items-center justify-center text-slate-600">
-              <Tv className="w-16 h-16 stroke-[1] mb-2 opacity-40" />
-              <p className="text-sm">Live Stream Gameplay Preview</p>
+              <Tv className="w-14 h-14 sm:w-16 sm:h-16 stroke-[1] mb-2 opacity-40" />
+              <p className="text-sm">Live stream preview</p>
             </div>
 
-            {/* OVERLAY ALERT ANIMATION (Lo que se ve en la pantalla del streamer) */}
             <AnimatePresence>
               {alerts.map((alert) => (
                 <motion.div
@@ -390,125 +842,31 @@ export default function Home() {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.8, y: -40 }}
                   transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                  className="absolute z-20 flex flex-col items-center text-center p-6 rounded-2xl bg-slate-900/90 border border-purple-500/40 backdrop-blur-xl shadow-2xl shadow-purple-500/30 max-w-xs"
+                  className="absolute z-20 flex flex-col items-center text-center p-5 sm:p-6 rounded-2xl bg-slate-900/90 border border-purple-500/40 backdrop-blur-xl shadow-2xl shadow-purple-500/30 max-w-xs"
                 >
                   <motion.span
-                    animate={{ rotate: [0, -10, 10, -10, 0], scale: [1, 1.2, 1] }}
+                    animate={{
+                      rotate: [0, -10, 10, -10, 0],
+                      scale: [1, 1.2, 1],
+                    }}
                     transition={{ repeat: Infinity, duration: 1.5 }}
-                    className="text-6xl mb-2"
+                    className="text-5xl sm:text-6xl mb-2"
                   >
                     {alert.emote.emoji}
                   </motion.span>
                   <div className="text-xs font-bold uppercase tracking-wider text-purple-400 mb-1">
                     {alert.emote.name} ({alert.emote.displayAmount})
                   </div>
-                  <p className="text-sm font-medium text-slate-200">
-                    &quot;{alert.message}&quot;
-                  </p>
+                  {alert.message.trim() && (
+                    <p className="text-sm font-medium text-slate-200">
+                      &quot;{alert.message}&quot;
+                    </p>
+                  )}
                 </motion.div>
               ))}
             </AnimatePresence>
           </div>
-        </div>
-
-        {/* Viewer Reaction Panel (Right Column - 5 Cols) */}
-        <div className="lg:col-span-5 flex flex-col gap-6">
-          <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-6 backdrop-blur-xl shadow-xl">
-            <h3 className="text-lg font-bold text-white mb-1 flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-amber-400" /> Send Reaction Gesture
-            </h3>
-            <p className="text-xs text-slate-400 mb-6">
-              Support the streamer instantly with zero crypto friction.
-            </p>
-
-            <form onSubmit={handleSendReaction} className="flex flex-col gap-5">
-              {/* Emote Selector */}
-              <div>
-                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 block">
-                  1. Select your Gesture Emote
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  {EMOTES.map((e) => {
-                    const isSelected = selectedEmote.id === e.id;
-                    return (
-                      <button
-                        type="button"
-                        key={e.id}
-                        onClick={() => setSelectedEmote(e)}
-                        className={`p-3 rounded-xl border transition-all flex items-center gap-3 text-left ${
-                          isSelected
-                            ? "bg-purple-600/15 border-purple-500 shadow-lg shadow-purple-500/10"
-                            : "bg-slate-950/50 border-slate-800 hover:border-slate-700"
-                        }`}
-                      >
-                        <span className="text-2xl">{e.emoji}</span>
-                        <div>
-                          <div className="text-xs font-bold text-slate-200">{e.name}</div>
-                          <div className="text-[11px] font-medium text-purple-400">{e.displayAmount}</div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Message Input */}
-              <div>
-                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block">
-                  2. Add a Message (Optional)
-                </label>
-                <input
-                  type="text"
-                  maxLength={80}
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  placeholder="¡Tremenda jugada bro!"
-                  className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-purple-500 transition-colors"
-                />
-              </div>
-
-              {/* Send Button */}
-              <button
-                type="submit"
-                disabled={!canSendReaction}
-                className={`w-full py-3.5 px-6 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 shadow-lg bg-gradient-to-r ${selectedEmote.color} hover:opacity-95 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed`}
-              >
-                <Send className="w-4 h-4" />{" "}
-                {sendButtonLabel}
-              </button>
-              {!authenticated && (
-                <p className="text-xs text-slate-500 text-center">
-                  Sign in with Google or email to create your embedded wallet.
-                </p>
-              )}
-              {authenticated && paymentState.status === "pending" && (
-                <p className="text-xs text-purple-300 text-center">
-                  Waiting for Monad confirmation
-                  {paymentState.hash ? `: ${paymentState.hash.slice(0, 10)}...` : "."}
-                </p>
-              )}
-              {authenticated && paymentState.status === "success" && (
-                <p className="text-xs text-emerald-300 text-center">
-                  Donation confirmed
-                  {paymentState.reference ? `: ${paymentState.reference.slice(0, 10)}...` : "."}
-                </p>
-              )}
-              {authenticated && paymentState.status === "error" && (
-                <p className="text-xs text-amber-300 text-center">
-                  {paymentState.reason}
-                </p>
-              )}
-              {authenticated &&
-                paymentState.status !== "error" &&
-                balanceCheckMessage && (
-                  <p className="text-xs text-amber-300 text-center">
-                    {balanceCheckMessage}
-                  </p>
-                )}
-            </form>
-          </div>
-        </div>
-
+        </section>
       </div>
     </main>
   );
