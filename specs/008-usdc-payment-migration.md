@@ -2,20 +2,22 @@
 
 ## Status
 
-IMPLEMENTING
+COMPLETE
 
 ## Approval Record
 
 Architecture review: PASS
 Architect recommendation: READY FOR HUMAN APPROVAL
 Human approval: Explicitly granted in conversation for SPEC-008
-Implementation status: IN PROGRESS
+Implementation status: COMPLETED
 
 State history:
 
 - DRAFT: Initial prospective specification drafted.
 - APPROVED: Human approval explicitly granted after architecture review.
 - IMPLEMENTING: Implementer began the approved USDC migration work.
+- VERIFYING: V2 deployed, post-deployment configuration integrated, and the first real USDC smoke test succeeded.
+- COMPLETE: Human final approval granted after real USDC smoke test, human OBS/Kick verification, and human Envio/dashboard runtime verification.
 
 Approved human decisions:
 
@@ -32,6 +34,8 @@ Approved human decisions:
 - The current deployed MON contract is V1 and remains untouched.
 - The USDC implementation is a new V2 deployment.
 - V2 deployed successfully at `0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A` in transaction `0xc63c4745602340f4af758a3c1fa45bf5764e0445f93f43648d8e9f9684902ea5` at block `67874925`.
+- Real Hype Fire smoke-test donation succeeded in transaction `0xf8572f792a1b32692fa42d2d29994f0683ad9dc90061181e2c8e84c0747fb7f6` at block `67881407`.
+- Human final approval was granted after runtime Envio/dashboard verification confirmed the clean V2 USDC dataset.
 - Gas sponsorship remains out of scope.
 
 ## Goal
@@ -604,6 +608,39 @@ Deployment observation:
 
 The original deployment transaction broadcast succeeded, but the deployment script immediately attempted to fetch the transaction through the configured RPC and encountered `TransactionNotFoundError` because the RPC had not indexed the returned hash yet. The implementation hardened the deploy script to send only once and use bounded receipt polling. If the receipt is still not indexed before timeout, the script tells the operator to check transaction status before retrying and does not automatically rebroadcast.
 
+## Smoke Test Record
+
+Real V2 USDC smoke test:
+
+- Viewer: `0x9E3481E9A3bd124906408d018773170e0e022280`
+- Creator: `0x27711734aC6865d99f9bbDCBAE2730674275E749`
+- Donation transaction: `0xf8572f792a1b32692fa42d2d29994f0683ad9dc90061181e2c8e84c0747fb7f6`
+- Donation block: `67881407`
+- Emote ID: `1`
+- Amount: `100000` USDC base units (`0.10 USDC`)
+- Post-donation viewer balance observed: `19.9 USDC`
+- Post-donation creator balance observed: `0.1 USDC`
+- Post-donation EmotePay V2 USDC balance observed: `0 USDC`
+- Post-donation viewer -> V2 allowance observed: `0 USDC`
+- Exactly one matching `Donation` event was found.
+
+OBS human runtime evidence:
+
+- EmotePay V2 `Donation` event reached the OBS overlay.
+- `emoteId` `1` rendered successfully.
+- Amount was displayed as USDC.
+- The reaction appeared in the real Kick stream.
+- No simulated frontend preview was used for this evidence.
+
+Envio and creator dashboard human runtime evidence:
+
+- Total received: `0.2 USDC`.
+- Donations: `2`.
+- Unique donors: `1`.
+- Smoke-test donation is present at block `67881407`, transaction `0xf8572f792a1b32692fa42d2d29994f0683ad9dc90061181e2c8e84c0747fb7f6`, amount `0.1 USDC`, `emoteId` `1` / Hype Fire.
+- A subsequent V2 donation is indexed at block `67894497`, amount `0.1 USDC`.
+- Human runtime verification confirms V2 `Donation` indexing, creator aggregate totals, creator-donor relationship, donation history, correct 6-decimal USDC formatting, and that V1 MON data is no longer mixed into the V2 dashboard.
+
 ## Open Questions
 
 None for the approved MVP. The frontend reads the configured USDC token from the V2 contract, and deployment tooling passes the verified Monad Testnet USDC address to the constructor.
@@ -619,78 +656,78 @@ None for the approved MVP. The frontend reads the configured USDC token from the
 
 ## Final Verification
 
-REQ-001: PENDING
-REQ-002: PENDING
-REQ-003: PENDING
-REQ-004: PENDING
-REQ-005: PENDING
-REQ-006: PENDING
-REQ-007: PENDING
-REQ-008: PENDING
-REQ-009: PENDING
-REQ-010: PENDING
-REQ-011: PENDING
-REQ-012: PENDING
-REQ-013: PENDING
-REQ-014: PENDING
-REQ-015: PENDING
-REQ-016: PENDING
-REQ-017: PENDING
-REQ-018: PENDING
-REQ-019: PENDING
-REQ-020: PENDING
-REQ-021: PENDING
-REQ-022: PENDING
-REQ-023: PENDING
-REQ-024: PENDING
-REQ-025: PENDING
-SEC-001: PENDING
-SEC-002: PENDING
-SEC-003: PENDING
-SEC-004: PENDING
-SEC-005: PENDING
-SEC-006: PENDING
-SEC-007: PENDING
-SEC-008: PENDING
-SEC-009: PENDING
-SEC-010: PENDING
-SEC-011: PENDING
-SEC-012: PENDING
-SEC-013: PENDING
-SEC-014: PENDING
-SEC-015: PENDING
-SEC-016: PENDING
-NFR-001: PENDING
-NFR-002: PENDING
-NFR-003: PENDING
-NFR-004: PENDING
-NFR-005: PENDING
-NFR-006: PENDING
-AC-001: PENDING
-AC-002: PENDING
-AC-003: PENDING
-AC-004: PENDING
-AC-005: PENDING
-AC-006: PENDING
-AC-007: PENDING
-AC-008: PENDING
-AC-009: PENDING
-AC-010: PENDING
-AC-011: PENDING
-AC-012: PENDING
-AC-013: PENDING
-AC-014: PENDING
-AC-015: PENDING
-AC-016: PENDING
-AC-017: PENDING
-AC-018: PENDING
-AC-019: PENDING
-AC-020: PENDING
-AC-021: PENDING
-AC-022: PENDING
+REQ-001: PASS
+REQ-002: PASS
+REQ-003: PASS
+REQ-004: PASS
+REQ-005: PASS
+REQ-006: PASS
+REQ-007: PASS
+REQ-008: PASS
+REQ-009: PASS
+REQ-010: PASS
+REQ-011: PASS
+REQ-012: PASS
+REQ-013: PASS
+REQ-014: PASS
+REQ-015: PASS
+REQ-016: PASS
+REQ-017: PASS
+REQ-018: PASS
+REQ-019: PASS
+REQ-020: PASS
+REQ-021: PASS
+REQ-022: PASS
+REQ-023: PASS
+REQ-024: PASS
+REQ-025: PASS
+SEC-001: PASS
+SEC-002: PASS
+SEC-003: PASS
+SEC-004: PASS
+SEC-005: PASS
+SEC-006: PASS
+SEC-007: PASS
+SEC-008: PASS
+SEC-009: PASS
+SEC-010: PASS
+SEC-011: PASS
+SEC-012: PASS
+SEC-013: PASS
+SEC-014: PASS
+SEC-015: PASS
+SEC-016: PASS
+NFR-001: PASS
+NFR-002: PASS
+NFR-003: PASS
+NFR-004: PASS
+NFR-005: PASS
+NFR-006: PASS
+AC-001: PASS
+AC-002: PASS
+AC-003: PASS
+AC-004: PASS
+AC-005: PASS
+AC-006: PASS
+AC-007: PASS
+AC-008: PASS
+AC-009: PASS
+AC-010: PASS
+AC-011: PASS
+AC-012: PASS
+AC-013: PASS
+AC-014: PASS
+AC-015: PASS
+AC-016: PASS
+AC-017: PASS
+AC-018: PASS
+AC-019: PASS
+AC-020: PASS
+AC-021: PASS
+AC-022: PASS
 
 ## Completion
 
 Implementation commit: TBD
-Review result: Architecture review passed; implementation review not started
-Human approval: Granted for specification approval; completion approval TBD
+Review result: PASS. Final reviewer result updated using deployment evidence, real USDC smoke-test evidence, human OBS/Kick runtime evidence, and human Envio/dashboard runtime evidence.
+Human approval: Granted for specification approval and final completion approval.
