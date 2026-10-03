@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "kero-method": {
+      "source": "uxKero/kero-stack",
+      "sourceType": "github",
+      "skillPath": "skills/kero-method/SKILL.md",
+      "computedHash": "dbb8ff514d32182f27d5b42124f1b3211fce319000f9f1f1abe466b7ff91e3fa"
+    }
+  }
+}
