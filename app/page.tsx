@@ -21,9 +21,10 @@ import { getPaymentReadinessState } from "@/lib/payment";
 import {
   createPublicClient,
   encodeFunctionData,
+  erc20Abi,
+  formatUnits,
   http,
   isAddressEqual,
-  parseEther,
   type Address,
 } from "viem";
 import Image from "next/image";
@@ -40,13 +41,19 @@ const kickPlayerUrl = kickChannel
 type BalanceCheckState =
   | { status: "idle" }
   | { status: "checking" }
-  | { status: "ready" }
+  | {
+      status: "ready";
+      usdcAddress: Address;
+      contractPrice: bigint;
+      requiresApproval: boolean;
+    }
   | { status: "insufficient"; reason: string }
   | { status: "error"; reason: string };
 
 type TransactionState =
   | { status: "idle" }
   | { status: "awaiting-approval" }
+  | { status: "approving"; hash: `0x${string}` }
   | { status: "submitting" }
   | { status: "confirming"; hash: `0x${string}` }
   | { status: "success"; reference: `0x${string}` }
@@ -87,7 +94,7 @@ function getTransactionErrorMessage(error: unknown) {
     lowerMessage.includes("insufficient") ||
     lowerMessage.includes("exceeds balance")
   ) {
-    return "Your embedded wallet needs more Monad Testnet MON to send this reaction.";
+    return "Your embedded wallet needs more USDC for the reaction or more Monad Testnet MON for gas.";
   }
 
   if (lowerMessage.includes("revert")) {
@@ -121,30 +128,99 @@ function getReadinessMessage(reason: string) {
   return reason;
 }
 
-async function getRequiredDonationBalance({
+function formatUsdcAmount(amount: bigint) {
+  const fullAmount = formatUnits(amount, 6);
+  const [whole, fraction = ""] = fullAmount.split(".");
+  const visibleFraction = fraction.slice(0, 6).replace(/0+$/, "");
+
+  return `${visibleFraction ? `${whole}.${visibleFraction}` : whole} USDC`;
+}
+
+async function getPaymentRequirements({
+  contractAddress,
+  donorAddress,
+  onchainId,
+}: {
+  contractAddress: Address;
+  donorAddress: Address;
+  onchainId: number;
+}) {
+  const [usdcAddress, contractPrice, gasPrice] = await Promise.all([
+    monadPublicClient.readContract({
+      address: contractAddress,
+      abi: emotePayContract.abi,
+      functionName: "usdc",
+    }),
+    monadPublicClient.readContract({
+      address: contractAddress,
+      abi: emotePayContract.abi,
+      functionName: "getEmotePrice",
+      args: [BigInt(onchainId)],
+    }),
+    monadPublicClient.getGasPrice(),
+  ]);
+  const [usdcBalance, allowance, nativeBalance] = await Promise.all([
+    monadPublicClient.readContract({
+      address: usdcAddress,
+      abi: erc20Abi,
+      functionName: "balanceOf",
+      args: [donorAddress],
+    }),
+    monadPublicClient.readContract({
+      address: usdcAddress,
+      abi: erc20Abi,
+      functionName: "allowance",
+      args: [donorAddress, contractAddress],
+    }),
+    monadPublicClient.getBalance({
+      address: donorAddress,
+    }),
+  ]);
+  const requiresApproval = allowance < contractPrice;
+  const approvalGas = requiresApproval
+    ? await monadPublicClient.estimateContractGas({
+        address: usdcAddress,
+        abi: erc20Abi,
+        functionName: "approve",
+        args: [contractAddress, contractPrice],
+        account: donorAddress,
+      })
+    : 0n;
+
+  return {
+    usdcAddress,
+    contractPrice,
+    usdcBalance,
+    nativeBalance,
+    allowance,
+    requiresApproval,
+    requiredApprovalGasBalance: approvalGas * gasPrice,
+  };
+}
+
+async function getRequiredDonationGasBalance({
   contractAddress,
   creatorAddress,
   donorAddress,
   onchainId,
-  value,
 }: {
   contractAddress: Address;
   creatorAddress: Address;
   donorAddress: Address;
   onchainId: number;
-  value: bigint;
 }) {
-  const gas = await monadPublicClient.estimateContractGas({
-    address: contractAddress,
-    abi: emotePayContract.abi,
-    functionName: "donate",
-    args: [creatorAddress, BigInt(onchainId)],
-    account: donorAddress,
-    value,
-  });
-  const gasPrice = await monadPublicClient.getGasPrice();
+  const [gas, gasPrice] = await Promise.all([
+    monadPublicClient.estimateContractGas({
+      address: contractAddress,
+      abi: emotePayContract.abi,
+      functionName: "donate",
+      args: [creatorAddress, BigInt(onchainId)],
+      account: donorAddress,
+    }),
+    monadPublicClient.getGasPrice(),
+  ]);
 
-  return value + gas * gasPrice;
+  return gas * gasPrice;
 }
 
 function getExplorerTransactionUrl(hash: `0x${string}`) {
@@ -217,15 +293,21 @@ export default function Home() {
       : null;
   const isActivePayment =
     transactionState.status === "awaiting-approval" ||
+    transactionState.status === "approving" ||
     transactionState.status === "submitting" ||
     transactionState.status === "confirming";
   const canSendReaction =
     readinessState.status === "ready" &&
     !isActivePayment &&
     effectiveBalanceCheck.status === "ready";
-  const selectedAmountLabel = selectedEmote.displayAmount;
+  const selectedAmountLabel =
+    effectiveBalanceCheck.status === "ready"
+      ? formatUsdcAmount(effectiveBalanceCheck.contractPrice)
+      : selectedEmote.displayAmount;
   const lastHash =
-    transactionState.status === "confirming"
+    transactionState.status === "approving"
+      ? transactionState.hash
+      : transactionState.status === "confirming"
       ? transactionState.hash
       : transactionState.status === "success"
         ? transactionState.reference
@@ -251,7 +333,15 @@ export default function Home() {
       return {
         tone: "active",
         title: "Awaiting approval",
-        body: "Approve this reaction in your wallet to continue.",
+        body: "Approve the wallet prompt to continue.",
+      };
+    }
+
+    if (transactionState.status === "approving") {
+      return {
+        tone: "active",
+        title: "Confirming USDC approval",
+        body: "Your exact USDC approval is waiting for confirmation.",
       };
     }
 
@@ -259,7 +349,7 @@ export default function Home() {
       return {
         tone: "active",
         title: "Submitting reaction",
-        body: "Sending your reaction payment to Monad Testnet.",
+        body: "Sending your USDC reaction payment to Monad Testnet.",
       };
     }
 
@@ -310,15 +400,21 @@ export default function Home() {
     if (balanceCheckMessage) {
       return {
         tone: "error",
-        title: "Wallet needs MON",
+        title: "Wallet needs funds",
         body: balanceCheckMessage,
       };
     }
 
+    const requiresUsdcApproval =
+      effectiveBalanceCheck.status === "ready" &&
+      effectiveBalanceCheck.requiresApproval;
+
     return {
       tone: "success",
-      title: "Ready to send",
-      body: `You are sending ${selectedEmote.name} for exactly ${selectedAmountLabel}.`,
+      title: requiresUsdcApproval ? "Ready for USDC approval" : "Ready to send",
+      body: requiresUsdcApproval
+        ? `Approve exactly ${selectedAmountLabel}, then send ${selectedEmote.name}.`
+        : `You are sending ${selectedEmote.name} for exactly ${selectedAmountLabel}.`,
     };
   })();
   const sendButtonLabel = (() => {
@@ -330,6 +426,10 @@ export default function Home() {
       return "Submitting reaction";
     }
 
+    if (transactionState.status === "approving") {
+      return "Confirming approval";
+    }
+
     if (transactionState.status === "confirming") {
       return "Confirming payment";
     }
@@ -339,7 +439,7 @@ export default function Home() {
     }
 
     if (effectiveBalanceCheck.status === "insufficient") {
-      return "Wallet needs testnet MON";
+      return "Wallet needs funds";
     }
 
     if (!authenticated) {
@@ -364,7 +464,6 @@ export default function Home() {
     }
 
     const donorAddress = embeddedWalletAddress;
-    const creatorAddress = demoCreator.walletAddress;
     const contractAddress = emotePayContract.address;
     let isCancelled = false;
 
@@ -372,37 +471,50 @@ export default function Home() {
       setBalanceCheck({ status: "checking" });
 
       try {
-        const value = parseEther(selectedEmote.amountMon);
-        const requiredBalance = await getRequiredDonationBalance({
+        const requirements = await getPaymentRequirements({
           contractAddress,
-          creatorAddress,
           donorAddress,
           onchainId: selectedEmote.onchainId,
-          value,
-        });
-        const balance = await monadPublicClient.getBalance({
-          address: donorAddress,
         });
 
         if (isCancelled) {
           return;
         }
 
-        setBalanceCheck(
-          balance >= requiredBalance
-            ? { status: "ready" }
-            : {
-                status: "insufficient",
-                reason:
-                  "Your embedded wallet needs more Monad Testnet MON to send this reaction.",
-              },
-        );
+        if (requirements.usdcBalance < requirements.contractPrice) {
+          setBalanceCheck({
+            status: "insufficient",
+            reason: `Your embedded wallet needs at least ${formatUsdcAmount(
+              requirements.contractPrice,
+            )} to send this reaction.`,
+          });
+          return;
+        }
+
+        if (
+          requirements.nativeBalance <
+          requirements.requiredApprovalGasBalance
+        ) {
+          setBalanceCheck({
+            status: "insufficient",
+            reason:
+              "Your embedded wallet needs more Monad Testnet MON for USDC approval gas.",
+          });
+          return;
+        }
+
+        setBalanceCheck({
+          status: "ready",
+          usdcAddress: requirements.usdcAddress,
+          contractPrice: requirements.contractPrice,
+          requiresApproval: requirements.requiresApproval,
+        });
       } catch {
         if (!isCancelled) {
           setBalanceCheck({
             status: "error",
             reason:
-              "We could not check your wallet balance. Please try again shortly.",
+              "We could not check your USDC balance or approval. Please try again shortly.",
           });
         }
       }
@@ -416,7 +528,6 @@ export default function Home() {
   }, [
     embeddedWalletAddress,
     readinessState.status,
-    selectedEmote.amountMon,
     selectedEmote.onchainId,
   ]);
 
@@ -458,27 +569,99 @@ export default function Home() {
       return;
     }
 
-    const value = parseEther(selectedEmote.amountMon);
-
     try {
       setTransactionState({ status: "awaiting-approval" });
 
       await embeddedWallet.switchChain(monadTestnet.id);
 
-      const requiredBalance = await getRequiredDonationBalance({
+      const donorAddress = embeddedWallet.address as Address;
+      const requirements = await getPaymentRequirements({
         contractAddress: emotePayContract.address,
-        creatorAddress: demoCreator.walletAddress,
-        donorAddress: embeddedWallet.address as Address,
+        donorAddress,
         onchainId: selectedEmote.onchainId,
-        value,
-      });
-      const balance = await monadPublicClient.getBalance({
-        address: embeddedWallet.address as Address,
       });
 
-      if (balance < requiredBalance) {
+      if (requirements.usdcBalance < requirements.contractPrice) {
+        const reason = `Your embedded wallet needs at least ${formatUsdcAmount(
+          requirements.contractPrice,
+        )} to send this reaction.`;
+        setBalanceCheck({
+          status: "insufficient",
+          reason,
+        });
+        setTransactionState({
+          status: "failure",
+          reason,
+        });
+        return;
+      }
+
+      if (
+        requirements.nativeBalance <
+        requirements.requiredApprovalGasBalance
+      ) {
         const reason =
-          "Your embedded wallet needs more Monad Testnet MON to send this reaction.";
+          "Your embedded wallet needs more Monad Testnet MON for USDC approval gas.";
+        setBalanceCheck({
+          status: "insufficient",
+          reason,
+        });
+        setTransactionState({
+          status: "failure",
+          reason,
+        });
+        return;
+      }
+
+      if (requirements.allowance < requirements.contractPrice) {
+        const approvalData = encodeFunctionData({
+          abi: erc20Abi,
+          functionName: "approve",
+          args: [emotePayContract.address, requirements.contractPrice],
+        });
+        const { hash: approvalHash } = await sendTransaction(
+          {
+            to: requirements.usdcAddress,
+            data: approvalData,
+            chainId: monadTestnet.id,
+          },
+          {
+            address: embeddedWallet.address,
+          },
+        );
+
+        setTransactionState({ status: "approving", hash: approvalHash });
+
+        const approvalReceipt =
+          await monadPublicClient.waitForTransactionReceipt({
+            hash: approvalHash,
+          });
+
+        if (approvalReceipt.status !== "success") {
+          setTransactionState({
+            status: "failure",
+            reason:
+              "Monad did not confirm the USDC approval, so the reaction was not sent.",
+          });
+          return;
+        }
+
+        setTransactionState({ status: "awaiting-approval" });
+      }
+
+      const requiredDonationGasBalance = await getRequiredDonationGasBalance({
+        contractAddress: emotePayContract.address,
+        creatorAddress: demoCreator.walletAddress,
+        donorAddress,
+        onchainId: selectedEmote.onchainId,
+      });
+      const nativeBalance = await monadPublicClient.getBalance({
+        address: donorAddress,
+      });
+
+      if (nativeBalance < requiredDonationGasBalance) {
+        const reason =
+          "Your embedded wallet needs more Monad Testnet MON for donation gas.";
         setBalanceCheck({
           status: "insufficient",
           reason,
@@ -502,7 +685,6 @@ export default function Home() {
         {
           to: emotePayContract.address,
           data,
-          value,
           chainId: monadTestnet.id,
         },
         {
@@ -605,7 +787,7 @@ export default function Home() {
                 Send a reaction
               </h1>
               <p className="text-sm text-slate-400 mt-1">
-                Choose a reaction that carries value. You will see the exact MON
+                Choose a reaction that carries value. You will see the exact USDC
                 amount before approval.
               </p>
             </div>
@@ -770,6 +952,14 @@ export default function Home() {
                     <dt className="text-slate-500">Contract</dt>
                     <dd className="font-mono text-slate-300">
                       {shortenAddress(emotePayContract.address)}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-slate-500">USDC token</dt>
+                    <dd className="font-mono text-slate-300">
+                      {effectiveBalanceCheck.status === "ready"
+                        ? shortenAddress(effectiveBalanceCheck.usdcAddress)
+                        : "Pending check"}
                     </dd>
                   </div>
                   <div className="flex items-center justify-between gap-3">

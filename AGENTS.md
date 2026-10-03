@@ -4,9 +4,9 @@
 
 This is the original EmotePay Monad/EVM repository for the Monad Metropolis hackathon.
 
-The verified product flow is:
+The current verified product flow is:
 
-viewer -> Privy authentication -> Privy embedded EVM wallet -> EmotePay Solidity contract -> creator receives MON -> Donation event -> realtime OBS overlay -> Envio creator analytics.
+viewer -> Privy authentication -> Privy embedded EVM wallet -> exact USDC approval when needed -> EmotePay Solidity contract -> creator receives USDC -> Donation event -> realtime OBS overlay -> Envio creator analytics.
 
 This repository is not the Solana version of EmotePay. Do not apply Solana-specific rules unless the user explicitly asks for a Solana migration or comparison.
 
@@ -35,19 +35,20 @@ This repository is not the Solana version of EmotePay. Do not apply Solana-speci
 - The viewer payment UI in `app/page.tsx` selects fixed emotes from `lib/emotes.ts`.
 - Payment readiness checks authentication, embedded wallet readiness, creator address configuration, contract address configuration, and self-donation.
 - The client switches the embedded wallet to Monad Testnet chain ID `10143`.
-- The client validates balance for donation value plus estimated gas before submitting.
-- The client sends a transaction to `EmotePay.donate(address,uint256)` with native MON value and waits for the receipt.
-- The Solidity contract in `contracts/EmotePay.sol` is non-custodial and forwards all `msg.value` to the creator.
-- Contract tests in `test/EmotePay.ts` verify event emission, exact forwarding, no retained balance, zero-value rejection, zero-address rejection, self-donation rejection, and forwarding failure reverts.
+- The client validates USDC balance, USDC allowance, and native MON gas readiness before submitting.
+- The client reads the V2 contract's configured USDC token and exact reaction price.
+- The client requests exact USDC approval when needed, waits for the approval receipt, sends a transaction to `EmotePay.donate(address,uint256)` with no native value, and waits for the donation receipt.
+- The Solidity contract in `contracts/EmotePay.sol` is non-custodial and transfers exact USDC directly from viewer to creator.
+- Contract tests in `test/EmotePay.ts` verify configured USDC, approved emote prices, event emission, exact forwarding, no retained USDC, invalid emote rejection, zero-address rejection, self-donation rejection, insufficient allowance, insufficient balance, and native MON rejection.
 - The OBS overlay in `app/overlay/page.tsx` watches `Donation` events on Monad Testnet, filters to the configured creator, deduplicates by transaction hash and log index, and animates alerts.
-- Envio indexes the deployed EmotePay contract configured in `indexer/config.yaml` at `0x039dd378eDD477aa7cd200953254a52D44f844A3` from block `66559947`.
+- Envio indexes the deployed EmotePay V2 contract configured in `indexer/config.yaml` at `0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A` from block `67874925`.
 - The creator dashboard in `app/creator/page.tsx` reads donation history through `/api/envio`.
 - The `/api/envio` route uses server-side `ENVIO_GRAPHQL_URL` and `ENVIO_GRAPHQL_ADMIN_SECRET` to query Envio GraphQL and does not expose those secrets to the browser.
 
 ### Not Implemented Yet / Future Work
 
 - Alchemy integration is not implemented.
-- No SPEC-007 exists yet.
+- The native MON deployment at `0x039dd378eDD477aa7cd200953254a52D44f844A3` from block `66559947` is historical V1 infrastructure.
 - There is no platform custody, platform fee, creator registry, multi-creator routing UI, or admin contract logic.
 - Donation messages are not stored onchain and are not indexed by Envio.
 - The in-page stream preview uses local UI state after a confirmed transaction; the standalone OBS overlay uses onchain events.
@@ -70,12 +71,15 @@ Project-specific verified decisions in this file override generic rules in `MONA
 Preserve the verified EmotePay semantics unless an approved spec changes them:
 
 - Payments are non-custodial.
-- The full `msg.value` is forwarded to the creator.
-- Zero-value donations revert.
+- V2 payments use the immutable configured USDC token.
+- The contract, not the frontend, determines reaction price from `emoteId`.
+- The exact USDC amount is transferred directly from viewer to creator.
+- Native MON is only used for gas unless a later approved spec changes that.
+- Invalid emote IDs revert.
 - Self-donations revert.
 - `Donation` is emitted only after successful transfer.
 - The contract does not keep unnecessary onchain history or storage.
-- External call failure reverts.
+- ERC-20 transfer failure reverts.
 - Do not use `tx.origin`.
 - Do not add unnecessary admin, custody, upgrade, fee, or withdrawal logic.
 

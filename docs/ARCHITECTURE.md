@@ -4,18 +4,18 @@
 
 EmotePay is a Monad Testnet EVM application. The verified flow is:
 
-viewer -> Privy login -> Privy embedded wallet -> `EmotePay.donate` transaction -> creator receives MON -> `Donation` event -> OBS overlay and Envio analytics.
+viewer -> Privy login -> Privy embedded wallet -> exact USDC approval when needed -> `EmotePay.donate` transaction -> creator receives USDC -> `Donation` event -> OBS overlay and Envio analytics.
 
 ## Viewer Frontend
 
-The main viewer experience lives in `app/page.tsx`. It lets a viewer choose one of the fixed emotes from `lib/emotes.ts`, optionally type a local message, and submit a native MON donation.
+The main viewer experience lives in `app/page.tsx`. It lets a viewer choose one of the fixed emotes from `lib/emotes.ts`, optionally type a local message, and submit a USDC donation.
 
 The available emotes are:
 
-- Hype Fire, onchain ID `1`, `0.001 MON`
-- To The Moon, onchain ID `2`, `0.005 MON`
-- King/Queen, onchain ID `3`, `0.01 MON`
-- Diamond Hands, onchain ID `4`, `0.025 MON`
+- Hype Fire, onchain ID `1`, `0.10 USDC`
+- To The Moon, onchain ID `2`, `0.50 USDC`
+- King/Queen, onchain ID `3`, `1.00 USDC`
+- Diamond Hands, onchain ID `4`, `2.50 USDC`
 
 ## Privy Authentication
 
@@ -44,25 +44,28 @@ Before sending a transaction, the frontend verifies:
 - The creator wallet address is configured and valid.
 - The EmotePay contract address is configured and valid.
 - The viewer is not donating to themself.
-- The wallet has enough MON for the donation value plus estimated gas.
+- The wallet has enough USDC for the donation amount.
+- The wallet has enough MON for approval and donation gas.
+- The wallet has enough USDC allowance, or can approve the exact amount.
 
-The client switches the wallet to Monad Testnet chain ID `10143`, encodes `donate(address,uint256)`, sends native MON value to the contract, waits for the receipt, and treats non-success receipts as failures.
+The client switches the wallet to Monad Testnet chain ID `10143`, reads the configured USDC token and exact price from the V2 contract, requests exact USDC approval when allowance is insufficient, waits for the approval receipt, encodes `donate(address,uint256)`, sends no native value, waits for the donation receipt, and treats non-success receipts as failures.
 
 ## EmotePay Solidity Contract
 
-`contracts/EmotePay.sol` defines one payable function:
+`contracts/EmotePay.sol` defines one nonpayable function:
 
 `donate(address creator, uint256 emoteId)`
 
-The verified contract behavior is:
+The current V2 contract behavior is:
 
 - Reverts for zero creator address.
-- Reverts for zero-value donations.
 - Reverts for self-donation.
-- Forwards the full `msg.value` to the creator with `call`.
-- Reverts if the external value transfer fails.
-- Emits `Donation(donor, creator, amount, emoteId)` only after a successful transfer.
+- Reverts for invalid emote IDs.
+- Derives the exact USDC price from `emoteId`.
+- Transfers USDC directly from the viewer to the creator with `SafeERC20.safeTransferFrom`.
+- Emits `Donation(donor, creator, amount, emoteId)` only after a successful USDC transfer.
 - Stores no donation history and keeps no custody balance in normal operation.
+- Uses immutable deployment-controlled USDC configuration.
 
 ## Monad Testnet
 
@@ -82,6 +85,8 @@ The canonical event is:
 
 The generated frontend ABI in `lib/generated/emotePayAbi.ts` matches the contract artifact.
 
+For V2, `amount` is USDC base units with 6 decimals.
+
 ## OBS Realtime Path
 
 `app/overlay/page.tsx` is the OBS browser-source route. It watches `Donation` events on the configured EmotePay contract address, filters logs to the configured creator address, deduplicates events by transaction hash and log index, maps `emoteId` to local emote metadata, queues alerts, and animates one alert at a time.
@@ -92,13 +97,14 @@ Historical events must not be replayed as new live alerts.
 
 The Envio HyperIndex project lives under `indexer/`.
 
-Verified configuration:
+Current V2 configuration:
 
 - Package: `envio` `^3.12.1`
 - Chain: Monad Testnet `10143`
-- Contract: `0x039dd378eDD477aa7cd200953254a52D44f844A3`
-- Start block: `66559947`
+- Contract: `0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A`
+- Start block: `67874925`
 - Event: `Donation(address indexed donor, address indexed creator, uint256 amount, uint256 indexed emoteId)`
+- Amount semantics: USDC base units, 6 decimals.
 
 `indexer/src/handlers/donations.ts` normalizes donor and creator addresses, creates donation IDs from transaction hash and log index, stores donation records, and updates creator, donor, creator-donor, and emote aggregates.
 
@@ -120,7 +126,8 @@ The route accepts a creator address and optional limit, validates the creator ad
 Onchain responsibilities:
 
 - Validate basic donation constraints.
-- Move MON from donor to creator.
+- Determine reaction price from `emoteId`.
+- Move USDC from donor to creator.
 - Emit canonical donation event.
 
 Offchain responsibilities:
@@ -132,6 +139,20 @@ Offchain responsibilities:
 - Optional viewer message text.
 - OBS alert rendering.
 - Donation history indexing and analytics.
+
+## Historical V1 MON Deployment
+
+The previous V1 native MON contract remains historical infrastructure:
+
+- V1 MON contract: `0x039dd378eDD477aa7cd200953254a52D44f844A3`
+- V1 Envio start block: `66559947`
+
+The current V2 USDC deployment is:
+
+- V2 USDC contract: `0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A`
+- V2 deployment transaction: `0xc63c4745602340f4af758a3c1fa45bf5764e0445f93f43648d8e9f9684902ea5`
+- V2 start block: `67874925`
+- USDC token: `0x534b2f3A21130d7a60830c2Df862319e593943A3`
 
 ## Future
 

@@ -1,6 +1,9 @@
 import { getAddress, isAddress, type Address } from "viem";
 import { emotePayAbi } from "@/lib/generated/emotePayAbi";
 
+export const EMOTEPAY_V2_CONTRACT_ADDRESS =
+  "0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A" as const;
+
 export type ContractConfigurationStatus =
   | "ready"
   | "missing-address"
@@ -17,7 +20,8 @@ function getContractAddress(): Pick<
   "address" | "configurationStatus"
 > {
   const configuredAddress =
-    process.env.NEXT_PUBLIC_EMOTEPAY_CONTRACT_ADDRESS?.trim();
+    process.env.NEXT_PUBLIC_EMOTEPAY_CONTRACT_ADDRESS?.trim() ||
+    EMOTEPAY_V2_CONTRACT_ADDRESS;
 
   if (!configuredAddress) {
     return {
