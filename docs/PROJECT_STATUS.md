@@ -35,7 +35,7 @@ Verified behavior:
 
 - Emote metadata is defined in `lib/emotes.ts`.
 - Creator configuration is read from `NEXT_PUBLIC_CREATOR_WALLET_ADDRESS`.
-- Contract configuration is read from `NEXT_PUBLIC_EMOTEPAY_CONTRACT_ADDRESS`.
+- Contract configuration is read from `NEXT_PUBLIC_EMOTEPAY_CONTRACT_ADDRESS`, with the current V2 address as the code default.
 - Payment readiness is centralized in `lib/payment.ts`.
 
 Relevant files:
@@ -61,18 +61,19 @@ Status: COMPLETE
 
 Verified behavior:
 
-- `donate(address creator, uint256 emoteId)` accepts native MON value.
+- V2 `donate(address creator, uint256 emoteId)` is nonpayable and accepts no native donation value.
+- USDC is configured immutably at deployment.
+- `getEmotePrice(uint256 emoteId)` exposes contract-defined USDC prices.
 - Zero creator address reverts with `InvalidCreator`.
-- Zero-value donation reverts with `ZeroDonation`.
 - Self-donation reverts with `SelfDonationNotAllowed`.
-- Failed value forwarding reverts with `TransferFailed`.
-- Successful donations forward the full amount and emit `Donation`.
+- Invalid emote IDs revert with `InvalidEmote`.
+- Successful donations transfer exact USDC directly from viewer to creator and emit `Donation`.
 - No donation history or custody storage is kept.
 
 Relevant files:
 
 - `contracts/EmotePay.sol`
-- `contracts/test/RevertingReceiver.sol`
+- `contracts/test/MockUSDC.sol`
 - `test/EmotePay.ts`
 - `lib/generated/emotePayAbi.ts`
 
@@ -94,8 +95,10 @@ Verified behavior:
 - Hardhat has a `monadTestnet` network.
 - Deployment script refuses unexpected chain IDs.
 - Frontend switches the embedded wallet to Monad Testnet before sending.
-- Frontend estimates gas, checks balance, sends value to the configured contract, waits for a receipt, and handles reverted receipts.
-- Envio configuration references deployed contract `0x039dd378eDD477aa7cd200953254a52D44f844A3`.
+- Frontend reads the V2 contract's configured USDC token and exact reaction price.
+- Frontend checks USDC balance, USDC allowance, and native MON for gas.
+- Frontend requests exact USDC approval when needed, waits for approval receipt, sends no native value to V2, waits for donation receipt, and handles reverted receipts.
+- Envio configuration references deployed V2 contract `0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A`.
 
 Relevant files:
 
@@ -114,8 +117,12 @@ Validation/tests:
 Important public identifiers:
 
 - Monad Testnet chain ID: `10143`
-- Indexed EmotePay contract: `0x039dd378eDD477aa7cd200953254a52D44f844A3`
-- Envio start block: `66559947`
+- Current V2 EmotePay contract: `0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A`
+- Current V2 deployment transaction: `0xc63c4745602340f4af758a3c1fa45bf5764e0445f93f43648d8e9f9684902ea5`
+- Current V2 Envio start block: `67874925`
+- Current V2 USDC token: `0x534b2f3A21130d7a60830c2Df862319e593943A3`
+- Historical V1 MON contract: `0x039dd378eDD477aa7cd200953254a52D44f844A3`
+- Historical V1 start block: `66559947`
 
 Known limitations:
 
@@ -129,11 +136,12 @@ Status: COMPLETE
 Verified behavior:
 
 - `/overlay` renders a transparent OBS-compatible page.
-- The overlay watches `Donation` events from the configured contract.
+- The overlay watches `Donation` events from the configured V2 contract.
 - Logs are filtered to the configured creator.
 - Alerts are deduplicated by transaction hash and log index.
 - Unknown emote IDs are ignored.
 - Alerts are queued and dismissed after a timed display.
+- Amounts are formatted as 6-decimal USDC.
 
 Relevant files:
 
@@ -159,11 +167,11 @@ Status: COMPLETE
 
 Verified behavior:
 
-- Envio indexes `Donation` events for Monad Testnet contract `0x039dd378eDD477aa7cd200953254a52D44f844A3`.
+- Envio indexes `Donation` events for Monad Testnet V2 contract `0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A`.
 - Indexed entities include `Donation`, `Creator`, `CreatorDonor`, `Donor`, and `Emote`.
 - Aggregates track total donations, total amount, unique donors, donor totals, and emote totals.
 - `/api/envio` validates creator address and queries Envio GraphQL server-side.
-- `/creator` displays totals and recent indexed donations.
+- `/creator` displays USDC totals and recent indexed donations using 6-decimal formatting.
 
 Relevant files:
 
@@ -186,8 +194,10 @@ Validation/tests:
 Important public identifiers:
 
 - Monad Testnet chain ID: `10143`
-- Indexed EmotePay contract: `0x039dd378eDD477aa7cd200953254a52D44f844A3`
-- Start block: `66559947`
+- Indexed V2 EmotePay contract: `0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A`
+- V2 start block: `67874925`
+- Historical V1 MON contract: `0x039dd378eDD477aa7cd200953254a52D44f844A3`
+- Historical V1 start block: `66559947`
 
 Known limitations:
 

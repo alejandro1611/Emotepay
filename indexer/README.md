@@ -1,6 +1,6 @@
 # EmotePay Envio HyperIndex
 
-Indexes `Donation` events from the deployed `EmotePay` contract on Monad Testnet.
+Indexes `Donation` events from the deployed EmotePay V2 USDC contract on Monad Testnet.
 
 ## Docs Used
 
@@ -9,9 +9,10 @@ Indexes `Donation` events from the deployed `EmotePay` contract on Monad Testnet
 
 ## Contract
 
-- Address: `0x039dd378eDD477aa7cd200953254a52D44f844A3`
-- Start block: `66559947`
+- V2 USDC address: `0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A`
+- V2 start block: `67874925`
 - Event: `Donation(address indexed donor, address indexed creator, uint256 amount, uint256 indexed emoteId)`
+- Amount semantics: USDC base units, 6 decimals.
 
 ## Setup
 
@@ -41,7 +42,16 @@ http://localhost:8080/v1/graphql
 
 The local Hasura admin secret is documented by Envio as `testing`.
 
-## Known Donation To Verify
+## Historical V1 MON Deployment
+
+The previous native MON contract remains historical V1 infrastructure and is not indexed by the current V2 config:
+
+- V1 MON address: `0x039dd378eDD477aa7cd200953254a52D44f844A3`
+- V1 start block: `66559947`
+
+Do not treat historical V1 MON events as V2 USDC events.
+
+## Known V1 Donation To Verify Historical Data
 
 Query for transaction hash:
 

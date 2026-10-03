@@ -31,6 +31,7 @@ Approved human decisions:
 - `Donation.amount` remains `uint256` base units, now semantically USDC base units.
 - The current deployed MON contract is V1 and remains untouched.
 - The USDC implementation is a new V2 deployment.
+- V2 deployed successfully at `0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A` in transaction `0xc63c4745602340f4af758a3c1fa45bf5764e0445f93f43648d8e9f9684902ea5` at block `67874925`.
 - Gas sponsorship remains out of scope.
 
 ## Goal
@@ -589,6 +590,19 @@ Contract tests should use a deterministic mock ERC-20 for unit coverage. Live Mo
 - Envio aggregate counters remain incremental and are not made idempotent merely by deterministic donation IDs.
 - The old MON deployment and new USDC deployment can be confused if configuration and docs are not explicit.
 - Adding OpenZeppelin solely for `SafeERC20` may be heavier than the current dependency profile; a local minimal helper must still be reviewed carefully if chosen instead.
+
+## Deployment Record
+
+- Network: Monad Testnet, chain ID `10143`
+- V2 contract: `0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A`
+- Deployment transaction: `0xc63c4745602340f4af758a3c1fa45bf5764e0445f93f43648d8e9f9684902ea5`
+- Deployment block: `67874925`
+- Constructor USDC token: `0x534b2f3A21130d7a60830c2Df862319e593943A3`
+- Deployment status: `success`
+
+Deployment observation:
+
+The original deployment transaction broadcast succeeded, but the deployment script immediately attempted to fetch the transaction through the configured RPC and encountered `TransactionNotFoundError` because the RPC had not indexed the returned hash yet. The implementation hardened the deploy script to send only once and use bounded receipt polling. If the receipt is still not indexed before timeout, the script tells the operator to check transaction status before retrying and does not automatically rebroadcast.
 
 ## Open Questions
 

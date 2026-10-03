@@ -12,7 +12,7 @@ contracts:
 
 chains:
   - id: 10143 # Monad Testnet, HyperSync-supported.
-    start_block: 66559947
+    start_block: 67874925
     contracts:
       - name: EmotePay
-        address: "0x039dd378eDD477aa7cd200953254a52D44f844A3"
+        address: "0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A"
