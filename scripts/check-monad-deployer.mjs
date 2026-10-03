@@ -5,6 +5,8 @@ import { loadEnvLocal } from "./load-env-local.mjs";
 loadEnvLocal();
 
 const MONAD_TESTNET_CHAIN_ID = 10143;
+const MONAD_TESTNET_USDC_ADDRESS =
+  "0x534b2f3A21130d7a60830c2Df862319e593943A3";
 const rpcUrl = process.env.MONAD_TESTNET_RPC_URL;
 const privateKey = process.env.DEPLOYER_PRIVATE_KEY;
 
@@ -28,6 +30,7 @@ const publicClient = createPublicClient({
 
 console.log("Network: Monad Testnet");
 console.log(`Expected chain id: ${MONAD_TESTNET_CHAIN_ID}`);
+console.log(`EmotePay V2 USDC token: ${MONAD_TESTNET_USDC_ADDRESS}`);
 console.log("RPC configured: yes");
 console.log(`Deployer public address: ${account.address}`);
 

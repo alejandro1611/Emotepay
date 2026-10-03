@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { formatEther } from "viem";
+import { formatUnits } from "viem";
 import { BarChart3, ExternalLink, RefreshCw } from "lucide-react";
 import {
   fetchCreatorHistory,
@@ -27,12 +27,12 @@ function shortenValue(value: string) {
   return `${value.slice(0, 6)}...${value.slice(-4)}`;
 }
 
-function formatMonAmount(amount: string) {
-  const fullAmount = formatEther(BigInt(amount));
+function formatUsdcAmount(amount: string) {
+  const fullAmount = formatUnits(BigInt(amount), 6);
   const [whole, fraction = ""] = fullAmount.split(".");
   const trimmedFraction = fraction.slice(0, 6).replace(/0+$/, "");
 
-  return `${trimmedFraction ? `${whole}.${trimmedFraction}` : whole} MON`;
+  return `${trimmedFraction ? `${whole}.${trimmedFraction}` : whole} USDC`;
 }
 
 function getDonationTime(timestamp: string) {
@@ -132,7 +132,7 @@ export default function CreatorPage() {
               Total Received
             </div>
             <div className="mt-2 text-2xl font-black">
-              {formatMonAmount(totalReceived)}
+              {formatUsdcAmount(totalReceived)}
             </div>
           </div>
           <div className="rounded-lg border border-slate-800 bg-slate-900 p-5">
@@ -190,7 +190,7 @@ export default function CreatorPage() {
                       <span className="text-2xl">{emote?.emoji ?? "?"}</span>
                       <div className="min-w-0">
                         <div className="font-bold text-white">
-                          {formatMonAmount(donation.amount)}
+                          {formatUsdcAmount(donation.amount)}
                         </div>
                         <div className="truncate text-xs text-slate-400">
                           {emote?.name ?? `Emote #${donation.emoteId}`} ·{" "}

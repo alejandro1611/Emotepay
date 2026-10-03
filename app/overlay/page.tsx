@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useReducer, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   createPublicClient,
-  formatEther,
+  formatUnits,
   http,
   isAddress,
   isAddressEqual,
@@ -63,11 +63,11 @@ function shortenAddress(address: Address) {
 }
 
 function getFormattedAmount(amount: bigint) {
-  const fullAmount = formatEther(amount);
+  const fullAmount = formatUnits(amount, 6);
   const [whole, fraction = ""] = fullAmount.split(".");
   const trimmedFraction = fraction.slice(0, 6).replace(/0+$/, "");
 
-  return `${trimmedFraction ? `${whole}.${trimmedFraction}` : whole} MON`;
+  return `${trimmedFraction ? `${whole}.${trimmedFraction}` : whole} USDC`;
 }
 
 function getNextOverlayState(queue: OverlayDonation[]): OverlayState {
