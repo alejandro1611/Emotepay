@@ -232,29 +232,23 @@ function getExplorerTransactionUrl(hash: `0x${string}`) {
   return `https://testnet.monadexplorer.com/tx/${hash}`;
 }
 
-// El recorte redondeado vive en un envoltorio interno para que los overlays
-// que recibe como children puedan desbordar el video, como el popover de
-// detalles en pantallas donde el reproductor es chico.
-function KickStreamPlayer({ children }: { children?: React.ReactNode }) {
+function KickStreamPlayer() {
   return (
-    <div className="relative aspect-video w-full">
-      <div className="absolute inset-0 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl">
-        {kickPlayerUrl ? (
-          <iframe
-            src={kickPlayerUrl}
-            title="Kick livestream"
-            allow="autoplay; fullscreen; picture-in-picture"
-            allowFullScreen
-            className="absolute inset-0 h-full w-full"
-          />
-        ) : (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950 text-slate-500">
-            <Tv className="w-14 h-14 sm:w-16 sm:h-16 stroke-[1] mb-2 opacity-50" />
-            <p className="text-sm">Kick stream not configured</p>
-          </div>
-        )}
-      </div>
-      {children}
+    <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl">
+      {kickPlayerUrl ? (
+        <iframe
+          src={kickPlayerUrl}
+          title="Kick livestream"
+          allow="autoplay; fullscreen; picture-in-picture"
+          allowFullScreen
+          className="absolute inset-0 h-full w-full"
+        />
+      ) : (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950 text-slate-500">
+          <Tv className="w-14 h-14 sm:w-16 sm:h-16 stroke-[1] mb-2 opacity-50" />
+          <p className="text-sm">Kick stream not configured</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -373,11 +367,21 @@ export default function Home() {
       };
     }
 
-    if (balanceCheckMessage) {
+    // No poder verificar el saldo y no tener saldo son cosas distintas, y
+    // cada una pide algo distinto del viewer.
+    if (effectiveBalanceCheck.status === "insufficient") {
       return {
         tone: "error",
         title: "Not enough funds",
-        body: balanceCheckMessage,
+        body: effectiveBalanceCheck.reason,
+      };
+    }
+
+    if (effectiveBalanceCheck.status === "error") {
+      return {
+        tone: "error",
+        title: "Can't check your wallet",
+        body: effectiveBalanceCheck.reason,
       };
     }
 
@@ -683,87 +687,94 @@ export default function Home() {
         className="mx-auto w-full px-4 sm:px-6 py-5"
         style={{ maxWidth: STREAM_COLUMN_MAX_WIDTH }}
       >
-        <KickStreamPlayer>
-          <div className="absolute left-3 top-3 flex items-center gap-2 rounded-full border border-slate-700 bg-slate-950/80 py-1.5 pl-1.5 pr-3.5 backdrop-blur-sm">
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-tr from-amber-400 to-purple-500 text-xs font-black text-slate-950">
-              {demoCreator.displayName.slice(0, 1)}
+        {/* Abajo de 640 el video es demasiado chico para sostener overlays:
+            los chips bajan al flujo, arriba y abajo del reproductor. */}
+        <div className="relative">
+          <div className="mb-2 flex items-center justify-between gap-2 sm:absolute sm:inset-x-3 sm:top-3 sm:z-10 sm:mb-0">
+            <div className="flex min-w-0 items-center gap-2 rounded-full border border-slate-700 bg-slate-950/80 py-1.5 pl-1.5 pr-3.5 backdrop-blur-sm">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-amber-400 to-purple-500 text-xs font-black text-slate-950">
+                {demoCreator.displayName.slice(0, 1)}
+              </div>
+              <span className="truncate text-[13px] font-bold text-white">
+                {demoCreator.displayName}
+              </span>
             </div>
-            <span className="text-[13px] font-bold text-white">
-              {demoCreator.displayName}
-            </span>
+
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="flex items-center gap-2 rounded-full border border-emerald-700 bg-slate-950/80 px-3 py-1.5 text-xs font-semibold text-emerald-300 backdrop-blur-sm">
+                <Radio className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden sm:inline">Live on Kick</span>
+                <span className="sm:hidden">Live</span>
+              </span>
+              <details className="relative">
+                <summary
+                  aria-label="Transaction details"
+                  className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-full border border-slate-700 bg-slate-950/80 text-slate-300 backdrop-blur-sm transition-colors hover:text-white"
+                >
+                  <Info className="h-4 w-4" />
+                </summary>
+                <dl className="absolute right-0 top-full z-40 mt-2 grid w-[min(20rem,calc(100vw-2rem))] grid-cols-1 gap-3 rounded-xl border border-slate-700 bg-slate-900/95 p-4 text-xs shadow-2xl backdrop-blur-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-slate-400">Network</dt>
+                    <dd className="text-slate-300">
+                      {monadTestnet.name} ({monadTestnet.id})
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-slate-400">Your wallet</dt>
+                    <dd className="font-mono text-slate-300">
+                      {shortenAddress(embeddedWalletAddress)}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-slate-400">Creator wallet</dt>
+                    <dd className="font-mono text-slate-300">
+                      {shortenAddress(demoCreator.walletAddress)}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-slate-400">Contract</dt>
+                    <dd className="font-mono text-slate-300">
+                      {shortenAddress(emotePayContract.address)}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-slate-400">USDC token</dt>
+                    <dd className="font-mono text-slate-300">
+                      {effectiveBalanceCheck.status === "ready"
+                        ? shortenAddress(effectiveBalanceCheck.usdcAddress)
+                        : "Pending check"}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-slate-400">Transaction</dt>
+                    <dd className="font-mono text-slate-300">
+                      {lastHash ? shortenAddress(lastHash) : "Pending send"}
+                    </dd>
+                  </div>
+                  {lastHash && (
+                    <a
+                      href={getExplorerTransactionUrl(lastHash)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-purple-300 hover:text-purple-200"
+                    >
+                      View on Monad explorer
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  )}
+                </dl>
+              </details>
+            </div>
           </div>
 
-          <div className="absolute right-3 top-3 flex items-center gap-2">
-            <span className="flex items-center gap-2 rounded-full border border-emerald-700 bg-slate-950/80 px-3 py-1.5 text-xs font-semibold text-emerald-300 backdrop-blur-sm">
-              <Radio className="h-3.5 w-3.5" />
-              Live on Kick
-            </span>
-            <details className="relative">
-              <summary
-                aria-label="Transaction details"
-                className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-full border border-slate-700 bg-slate-950/80 text-slate-300 backdrop-blur-sm transition-colors hover:text-white"
-              >
-                <Info className="h-4 w-4" />
-              </summary>
-              <dl className="absolute right-0 top-full z-40 mt-2 grid w-[min(20rem,calc(100vw-2rem))] grid-cols-1 gap-3 rounded-xl border border-slate-700 bg-slate-900/95 p-4 text-xs shadow-2xl backdrop-blur-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <dt className="text-slate-400">Network</dt>
-                  <dd className="text-slate-300">
-                    {monadTestnet.name} ({monadTestnet.id})
-                  </dd>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <dt className="text-slate-400">Your wallet</dt>
-                  <dd className="font-mono text-slate-300">
-                    {shortenAddress(embeddedWalletAddress)}
-                  </dd>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <dt className="text-slate-400">Creator wallet</dt>
-                  <dd className="font-mono text-slate-300">
-                    {shortenAddress(demoCreator.walletAddress)}
-                  </dd>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <dt className="text-slate-400">Contract</dt>
-                  <dd className="font-mono text-slate-300">
-                    {shortenAddress(emotePayContract.address)}
-                  </dd>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <dt className="text-slate-400">USDC token</dt>
-                  <dd className="font-mono text-slate-300">
-                    {effectiveBalanceCheck.status === "ready"
-                      ? shortenAddress(effectiveBalanceCheck.usdcAddress)
-                      : "Pending check"}
-                  </dd>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <dt className="text-slate-400">Transaction</dt>
-                  <dd className="font-mono text-slate-300">
-                    {lastHash ? shortenAddress(lastHash) : "Pending send"}
-                  </dd>
-                </div>
-                {lastHash && (
-                  <a
-                    href={getExplorerTransactionUrl(lastHash)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-purple-300 hover:text-purple-200"
-                  >
-                    View on Monad explorer
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                )}
-              </dl>
-            </details>
-          </div>
+          <KickStreamPlayer />
 
           {paymentNotice && (
             <div
               role={paymentNotice.tone === "error" ? "alert" : "status"}
               aria-live={paymentNotice.tone === "error" ? "assertive" : "polite"}
-              className={`absolute bottom-3 left-3 flex max-w-[calc(100%-1.5rem)] items-center gap-2.5 rounded-xl border px-3.5 py-2.5 backdrop-blur-sm ${
+              className={`mt-2 flex items-center gap-2.5 rounded-xl border px-3.5 py-2.5 backdrop-blur-sm sm:absolute sm:bottom-3 sm:left-3 sm:mt-0 sm:max-w-[calc(100%-1.5rem)] ${
                 paymentNotice.tone === "success"
                   ? "border-emerald-600 bg-emerald-950/90"
                   : paymentNotice.tone === "error"
@@ -786,7 +797,7 @@ export default function Home() {
               </p>
             </div>
           )}
-        </KickStreamPlayer>
+        </div>
 
         <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
           {EMOTES.map((emote) => {
