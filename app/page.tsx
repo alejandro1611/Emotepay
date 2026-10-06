@@ -92,18 +92,18 @@ function getTransactionErrorMessage(error: unknown) {
     lowerMessage.includes("user denied") ||
     lowerMessage.includes("rejected")
   ) {
-    return "You cancelled the wallet approval. No reaction was sent.";
+    return "Cancelled. Nothing was sent.";
   }
 
   if (
     lowerMessage.includes("insufficient") ||
     lowerMessage.includes("exceeds balance")
   ) {
-    return "Your embedded wallet needs more USDC for the reaction or more Monad Testnet MON for gas.";
+    return "Not enough USDC, or not enough MON for gas.";
   }
 
   if (lowerMessage.includes("revert")) {
-    return "Monad did not complete this payment, so the reaction was not sent.";
+    return "Monad rejected the payment.";
   }
 
   if (
@@ -111,23 +111,23 @@ function getTransactionErrorMessage(error: unknown) {
     lowerMessage.includes("network") ||
     lowerMessage.includes("rpc")
   ) {
-    return "We could not reach Monad Testnet. Please check your connection and try again.";
+    return "Can't reach Monad. Check your connection.";
   }
 
-  return "We could not send that reaction. Please try again when you are ready.";
+  return "Could not send it. Try again.";
 }
 
 function getReadinessMessage(reason: string) {
   if (reason.includes("Creator wallet")) {
-    return "This creator is not ready to receive reactions yet.";
+    return "This creator can't receive reactions yet.";
   }
 
   if (reason.includes("contract")) {
-    return "EmotePay payments are not configured for this page yet.";
+    return "Payments aren't configured yet.";
   }
 
   if (reason.includes("Embedded wallet")) {
-    return "Your embedded wallet is still being prepared. Please wait a moment.";
+    return "Your wallet is still getting ready.";
   }
 
   return reason;
@@ -302,10 +302,6 @@ export default function Home() {
     readinessState.status === "ready" &&
     !isActivePayment &&
     effectiveBalanceCheck.status === "ready";
-  const selectedAmountLabel =
-    effectiveBalanceCheck.status === "ready"
-      ? formatUsdcAmount(effectiveBalanceCheck.contractPrice)
-      : selectedEmote.displayAmount;
   const lastHash =
     transactionState.status === "approving"
       ? transactionState.hash
@@ -314,52 +310,38 @@ export default function Home() {
       : transactionState.status === "success"
         ? transactionState.reference
         : undefined;
+  // El aviso va sobre el video, así que solo entran los estados que piden
+  // atención y en el largo de una etiqueta. Los demás devuelven null: "listo
+  // para enviar" quedaría fijo encima del stream sin aportar nada, y la
+  // verificación de saldo dura menos de un segundo, así que un cartel que
+  // parpadea molesta más de lo que informa.
   const paymentNotice = (() => {
-    if (!ready) {
-      return {
-        tone: "neutral",
-        title: "Getting EmotePay ready",
-        body: "Loading sign-in so you can send a reaction.",
-      };
-    }
-
-    if (!authenticated) {
-      return {
-        tone: "neutral",
-        title: "Ready when you sign in",
-        body: "Use Google or email to send this reaction with an embedded wallet.",
-      };
-    }
-
     if (transactionState.status === "awaiting-approval") {
       return {
         tone: "active",
-        title: "Awaiting approval",
-        body: "Approve the wallet prompt to continue.",
+        title: "Waiting for you",
+        body: "Approve it in your wallet.",
       };
     }
 
     if (transactionState.status === "approving") {
       return {
         tone: "active",
-        title: "Confirming USDC approval",
-        body: "Your exact USDC approval is waiting for confirmation.",
+        title: "Step 1 of 2",
+        body: "Approving USDC.",
       };
     }
 
-    if (transactionState.status === "submitting") {
+    // Enviar y confirmar son dos estados del código, pero para el viewer son
+    // el mismo paso: la reacción ya salió y está esperando a Monad.
+    if (
+      transactionState.status === "submitting" ||
+      transactionState.status === "confirming"
+    ) {
       return {
         tone: "active",
-        title: "Submitting reaction",
-        body: "Sending your USDC reaction payment to Monad Testnet.",
-      };
-    }
-
-    if (transactionState.status === "confirming") {
-      return {
-        tone: "active",
-        title: "Confirming on Monad",
-        body: "Your reaction is waiting for payment confirmation.",
+        title: "Step 2 of 2",
+        body: "Confirming on Monad.",
       };
     }
 
@@ -367,8 +349,8 @@ export default function Home() {
       if (showSuccessBanner) {
         return {
           tone: "success",
-          title: "Reaction sent",
-          body: "Your support was confirmed and the stream reaction is now live.",
+          title: "Sent",
+          body: "Your reaction is live on the stream.",
         };
       }
 
@@ -378,7 +360,7 @@ export default function Home() {
     if (transactionState.status === "failure") {
       return {
         tone: "error",
-        title: "Reaction not sent",
+        title: "Not sent",
         body: transactionState.reason,
       };
     }
@@ -386,48 +368,21 @@ export default function Home() {
     if (readinessState.status === "error") {
       return {
         tone: "error",
-        title: "Sending is unavailable",
+        title: "Can't send",
         body: getReadinessMessage(readinessState.reason),
-      };
-    }
-
-    if (effectiveBalanceCheck.status === "checking") {
-      return {
-        tone: "active",
-        title: "Checking wallet",
-        body: "Making sure your embedded wallet can cover the reaction.",
       };
     }
 
     if (balanceCheckMessage) {
       return {
         tone: "error",
-        title: "Wallet needs funds",
+        title: "Not enough funds",
         body: balanceCheckMessage,
       };
     }
 
-    const requiresUsdcApproval =
-      effectiveBalanceCheck.status === "ready" &&
-      effectiveBalanceCheck.requiresApproval;
-
-    return {
-      tone: "success",
-      title: requiresUsdcApproval ? "Ready for USDC approval" : "Ready to send",
-      body: requiresUsdcApproval
-        ? `Approve exactly ${selectedAmountLabel}, then send ${selectedEmote.name}.`
-        : `You are sending ${selectedEmote.name} for exactly ${selectedAmountLabel}.`,
-    };
+    return null;
   })();
-  // Sobre el video solo van los estados que piden atención: el aviso de
-  // "Ready to send" quedaría fijo encima del stream sin aportar nada.
-  const overlayNotice =
-    paymentNotice &&
-    (paymentNotice.tone === "error" ||
-      paymentNotice.tone === "active" ||
-      (paymentNotice.tone === "success" && showSuccessBanner))
-      ? paymentNotice
-      : null;
 
   useEffect(() => {
     if (
@@ -460,9 +415,9 @@ export default function Home() {
         if (requirements.usdcBalance < requirements.contractPrice) {
           setBalanceCheck({
             status: "insufficient",
-            reason: `Your embedded wallet needs at least ${formatUsdcAmount(
+            reason: `Add at least ${formatUsdcAmount(
               requirements.contractPrice,
-            )} to send this reaction.`,
+            )}.`,
           });
           return;
         }
@@ -473,8 +428,7 @@ export default function Home() {
         ) {
           setBalanceCheck({
             status: "insufficient",
-            reason:
-              "Your embedded wallet needs more Monad Testnet MON for USDC approval gas.",
+            reason: "Add MON for the approval gas.",
           });
           return;
         }
@@ -489,8 +443,7 @@ export default function Home() {
         if (!isCancelled) {
           setBalanceCheck({
             status: "error",
-            reason:
-              "We could not check your USDC balance or approval. Please try again shortly.",
+            reason: "Could not check your balance.",
           });
         }
       }
@@ -534,7 +487,11 @@ export default function Home() {
           balanceCheckMessage ??
           (readinessState.status === "error"
             ? getReadinessMessage(readinessState.reason)
-            : "This reaction is not ready to send yet."),
+            : // Sin sesión la readiness es "idle", no "error", así que este
+              // caso hay que nombrarlo acá o cae en un genérico inútil.
+              !authenticated
+              ? "Sign in to send a reaction."
+              : "This reaction isn't ready yet."),
       });
       return;
     }
@@ -802,35 +759,31 @@ export default function Home() {
             </details>
           </div>
 
-          {overlayNotice && (
+          {paymentNotice && (
             <div
-              role={overlayNotice.tone === "error" ? "alert" : "status"}
-              aria-live={overlayNotice.tone === "error" ? "assertive" : "polite"}
-              className={`absolute bottom-3 left-3 right-3 rounded-xl border p-3 backdrop-blur-sm sm:right-auto sm:max-w-md ${
-                overlayNotice.tone === "success"
+              role={paymentNotice.tone === "error" ? "alert" : "status"}
+              aria-live={paymentNotice.tone === "error" ? "assertive" : "polite"}
+              className={`absolute bottom-3 left-3 flex max-w-[calc(100%-1.5rem)] items-center gap-2.5 rounded-xl border px-3.5 py-2.5 backdrop-blur-sm ${
+                paymentNotice.tone === "success"
                   ? "border-emerald-600 bg-emerald-950/90"
-                  : overlayNotice.tone === "error"
+                  : paymentNotice.tone === "error"
                     ? "border-amber-600 bg-amber-950/90"
                     : "border-purple-600 bg-purple-950/90"
               }`}
             >
-              <div className="flex items-start gap-2.5">
-                {overlayNotice.tone === "success" ? (
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
-                ) : overlayNotice.tone === "error" ? (
-                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
-                ) : (
-                  <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-purple-300" />
-                )}
-                <div className="min-w-0">
-                  <p className="text-[13px] font-bold text-white">
-                    {overlayNotice.title}
-                  </p>
-                  <p className="mt-0.5 text-[13px] text-slate-200">
-                    {overlayNotice.body}
-                  </p>
-                </div>
-              </div>
+              {paymentNotice.tone === "success" ? (
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-300" />
+              ) : paymentNotice.tone === "error" ? (
+                <AlertCircle className="h-4 w-4 shrink-0 text-amber-300" />
+              ) : (
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-purple-300" />
+              )}
+              <p className="min-w-0 text-[13px] text-slate-200">
+                <span className="font-bold text-white">
+                  {paymentNotice.title}
+                </span>{" "}
+                {paymentNotice.body}
+              </p>
             </div>
           )}
         </KickStreamPlayer>
