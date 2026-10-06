@@ -261,7 +261,6 @@ export default function Home() {
   const { ready: walletsReady, wallets } = useWallets();
   const { sendTransaction } = useSendTransaction();
   const [selectedEmote, setSelectedEmote] = useState<Emote>(EMOTES[0]);
-  const [message, setMessage] = useState("");
   const [transactionState, setTransactionState] = useState<TransactionState>({
     status: "idle",
   });
@@ -708,7 +707,6 @@ export default function Home() {
 
       setTransactionState({ status: "success", reference: hash });
       setShowSuccessBanner(true);
-      setMessage("");
     } catch (error) {
       setTransactionState({
         status: "failure",
@@ -834,21 +832,6 @@ export default function Home() {
                     );
                   })}
                 </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block">
-                  Message optional
-                </label>
-                <input
-                  type="text"
-                  maxLength={80}
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  disabled={isActivePayment}
-                  placeholder="Great play!"
-                  className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-purple-500 transition-colors disabled:opacity-60"
-                />
               </div>
 
               <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
