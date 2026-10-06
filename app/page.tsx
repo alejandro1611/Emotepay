@@ -8,7 +8,6 @@ import {
   Info,
   Loader2,
   Radio,
-  Send,
   Tv,
 } from "lucide-react";
 import { usePrivy, useSendTransaction, useWallets } from "@privy-io/react-auth";
@@ -38,11 +37,11 @@ const kickPlayerUrl = kickChannel
   ? `https://player.kick.com/${encodeURIComponent(kickChannel)}?autoplay=true&muted=true`
   : null;
 // El ancho del video se topa contra el alto de la ventana para que las
-// tarjetas de reacción entren sin scroll. 24rem es el alto fijo de todo lo
-// demás (header, paddings, tarjetas y botón) y los 3rem compensan el padding
+// tarjetas de reacción entren sin scroll. 19.5rem es el alto fijo de todo lo
+// demás (header, paddings y tarjetas) y los 3rem compensan el padding
 // horizontal, que el max-width incluye por el box-sizing de Tailwind.
 const STREAM_COLUMN_MAX_WIDTH =
-  "min(896px, calc((100vh - 24rem) * 16 / 9 + 3rem))";
+  "min(896px, calc((100vh - 19.5rem) * 16 / 9 + 3rem))";
 
 type BalanceCheckState =
   | { status: "idle" }
@@ -420,41 +419,6 @@ export default function Home() {
         : `You are sending ${selectedEmote.name} for exactly ${selectedAmountLabel}.`,
     };
   })();
-  const sendButtonLabel = (() => {
-    if (transactionState.status === "awaiting-approval") {
-      return "Approve in wallet";
-    }
-
-    if (transactionState.status === "submitting") {
-      return "Submitting reaction";
-    }
-
-    if (transactionState.status === "approving") {
-      return "Confirming approval";
-    }
-
-    if (transactionState.status === "confirming") {
-      return "Confirming payment";
-    }
-
-    if (effectiveBalanceCheck.status === "checking") {
-      return "Checking wallet";
-    }
-
-    if (effectiveBalanceCheck.status === "insufficient") {
-      return "Wallet needs funds";
-    }
-
-    if (!authenticated) {
-      return "Log in to send reaction";
-    }
-
-    if (!canSendReaction) {
-      return "Sending unavailable";
-    }
-
-    return `Send ${selectedEmote.name}`;
-  })();
   // Sobre el video solo van los estados que piden atención: el aviso de
   // "Ready to send" quedaría fijo encima del stream sin aportar nada.
   const overlayNotice =
@@ -557,9 +521,11 @@ export default function Home() {
     };
   }, [showSuccessBanner]);
 
-  const handleSendReaction = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // La tarjeta es la acción: recibe su emote en vez de leer el seleccionado,
+  // porque `setSelectedEmote` todavía no se aplicó cuando esto corre.
+  const handleSendReaction = async (emote: Emote) => {
     setShowSuccessBanner(false);
+    setSelectedEmote(emote);
 
     if (!canSendReaction) {
       setTransactionState({
@@ -590,7 +556,7 @@ export default function Home() {
       const requirements = await getPaymentRequirements({
         contractAddress: emotePayContract.address,
         donorAddress,
-        onchainId: selectedEmote.onchainId,
+        onchainId: emote.onchainId,
       });
 
       if (requirements.usdcBalance < requirements.contractPrice) {
@@ -665,7 +631,7 @@ export default function Home() {
         contractAddress: emotePayContract.address,
         creatorAddress: demoCreator.walletAddress,
         donorAddress,
-        onchainId: selectedEmote.onchainId,
+        onchainId: emote.onchainId,
       });
       const nativeBalance = await monadPublicClient.getBalance({
         address: donorAddress,
@@ -688,7 +654,7 @@ export default function Home() {
       const data = encodeFunctionData({
         abi: emotePayContract.abi,
         functionName: "donate",
-        args: [demoCreator.walletAddress, BigInt(selectedEmote.onchainId)],
+        args: [demoCreator.walletAddress, BigInt(emote.onchainId)],
       });
 
       setTransactionState({ status: "submitting" });
@@ -869,55 +835,45 @@ export default function Home() {
           )}
         </KickStreamPlayer>
 
-        <form onSubmit={handleSendReaction}>
-          <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
-            {EMOTES.map((emote) => {
-              const isSelected = selectedEmote.id === emote.id;
-              const [amountValue, amountUnit] = emote.displayAmount.split(" ");
+        <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          {EMOTES.map((emote) => {
+            const isSending = isActivePayment && selectedEmote.id === emote.id;
+            const [amountValue, amountUnit] = emote.displayAmount.split(" ");
 
-              return (
-                <button
-                  type="button"
-                  key={emote.id}
-                  onClick={() => setSelectedEmote(emote)}
-                  disabled={isActivePayment}
-                  aria-pressed={isSelected}
-                  className={`flex min-h-44 flex-col items-center justify-center rounded-[20px] border px-3 py-5 transition-all disabled:cursor-not-allowed disabled:opacity-70 sm:min-h-48 ${
-                    isSelected
-                      ? "border-purple-400 bg-purple-600/15 shadow-lg shadow-purple-500/10"
-                      : "border-slate-800 bg-slate-950/60 hover:border-slate-700"
-                  }`}
-                >
-                  <span className="text-[56px] leading-none sm:text-[64px]">
-                    {emote.emoji}
+            return (
+              <button
+                type="button"
+                key={emote.id}
+                onClick={() => handleSendReaction(emote)}
+                disabled={isActivePayment}
+                className={`flex min-h-44 flex-col items-center justify-center rounded-[20px] border px-3 py-5 transition-all disabled:cursor-not-allowed sm:min-h-48 ${
+                  isSending
+                    ? "border-purple-400 bg-purple-600/15 shadow-lg shadow-purple-500/10"
+                    : "border-slate-800 bg-slate-950/60 hover:border-slate-700 active:scale-[0.98] disabled:opacity-40"
+                }`}
+              >
+                <span className="text-[56px] leading-none sm:text-[64px]">
+                  {emote.emoji}
+                </span>
+                <span className="mt-3 text-sm font-bold text-slate-300">
+                  {emote.name}
+                </span>
+                {isSending ? (
+                  <span className="mt-0.5 flex h-7 items-center">
+                    <Loader2 className="h-5 w-5 animate-spin text-purple-300" />
                   </span>
-                  <span className="mt-3 text-sm font-bold text-slate-300">
-                    {emote.name}
-                  </span>
+                ) : (
                   <span className="mt-0.5 text-xl font-extrabold text-white">
                     {amountValue}{" "}
                     <span className="text-[13px] font-bold text-slate-400">
                       {amountUnit}
                     </span>
                   </span>
-                </button>
-              );
-            })}
-          </div>
-
-          <button
-            type="submit"
-            disabled={!canSendReaction}
-            className={`mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r px-5 py-3.5 text-sm font-bold shadow-lg transition-all ${selectedEmote.color} hover:opacity-95 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50`}
-          >
-            {isActivePayment ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4" />
-            )}
-            {sendButtonLabel}
-          </button>
-        </form>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </main>
   );
