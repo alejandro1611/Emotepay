@@ -241,6 +241,10 @@ function KickStreamPlayer() {
           title="Kick livestream"
           allow="autoplay; fullscreen; picture-in-picture"
           allowFullScreen
+          // Abajo de unos 315px de ventana el reproductor de Kick no entra en
+          // su propio documento y saca su barra de scroll. Es cross-origin, no
+          // podemos tocar su CSS: esto se lo pide al navegador desde afuera.
+          scrolling="no"
           className="absolute inset-0 h-full w-full"
         />
       ) : (
@@ -447,7 +451,8 @@ export default function Home() {
         if (!isCancelled) {
           setBalanceCheck({
             status: "error",
-            reason: "Could not check your balance.",
+            // El título del aviso ya dice qué falló: acá va qué hacer.
+            reason: "Try again in a moment.",
           });
         }
       }
