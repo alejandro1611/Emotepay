@@ -846,24 +846,41 @@ export default function Home() {
                 key={emote.id}
                 onClick={() => handleSendReaction(emote)}
                 disabled={isActivePayment}
-                className={`flex min-h-44 flex-col items-center justify-center rounded-[20px] border px-3 py-5 transition-all disabled:cursor-not-allowed sm:min-h-48 ${
+                style={{
+                  // El borde se tiñe con el color de la reacción: a 40% en
+                  // reposo y lleno mientras se envía.
+                  borderColor: isSending ? emote.accent : `${emote.accent}66`,
+                }}
+                className={`relative flex min-h-44 flex-col items-center justify-center overflow-hidden rounded-[20px] border bg-slate-950/60 px-3 py-5 transition-all disabled:cursor-not-allowed sm:min-h-48 ${
                   isSending
-                    ? "border-purple-400 bg-purple-600/15 shadow-lg shadow-purple-500/10"
-                    : "border-slate-800 bg-slate-950/60 hover:border-slate-700 active:scale-[0.98] disabled:opacity-40"
+                    ? "shadow-lg"
+                    : "hover:brightness-125 active:scale-[0.98] disabled:opacity-40"
                 }`}
               >
-                <span className="text-[56px] leading-none sm:text-[64px]">
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute left-1/2 top-[38%] h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full transition-opacity"
+                  style={{
+                    background: `radial-gradient(circle, ${emote.accent}${
+                      isSending ? "66" : "4d"
+                    }, transparent 70%)`,
+                  }}
+                />
+                <span className="relative text-[56px] leading-none sm:text-[64px]">
                   {emote.emoji}
                 </span>
-                <span className="mt-3 text-sm font-bold text-slate-300">
+                <span className="relative mt-3 text-sm font-bold text-slate-300">
                   {emote.name}
                 </span>
                 {isSending ? (
-                  <span className="mt-0.5 flex h-7 items-center">
-                    <Loader2 className="h-5 w-5 animate-spin text-purple-300" />
+                  <span className="relative mt-0.5 flex h-7 items-center">
+                    <Loader2
+                      className="h-5 w-5 animate-spin"
+                      style={{ color: emote.accent }}
+                    />
                   </span>
                 ) : (
-                  <span className="mt-0.5 text-xl font-extrabold text-white">
+                  <span className="relative mt-0.5 text-xl font-extrabold text-white">
                     {amountValue}{" "}
                     <span className="text-[13px] font-bold text-slate-400">
                       {amountUnit}

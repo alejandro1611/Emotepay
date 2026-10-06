@@ -5,7 +5,12 @@ export type Emote = {
   name: string;
   displayAmount: string;
   amountUsdcBaseUnits: bigint;
-  color: string;
+  /**
+   * Color sólido de la reacción, en hex. La tarjeta lo usa para el borde y
+   * para el halo detrás del emoji, así que no puede ser una clase de Tailwind:
+   * va a estilos en línea porque el valor es dinámico.
+   */
+  accent: string;
 };
 
 export const EMOTES = [
@@ -16,7 +21,7 @@ export const EMOTES = [
     name: "Hype Fire",
     displayAmount: "0.10 USDC",
     amountUsdcBaseUnits: 100_000n,
-    color: "from-orange-500 to-red-600",
+    accent: "#f97316",
   },
   {
     id: "rocket",
@@ -25,7 +30,7 @@ export const EMOTES = [
     name: "To The Moon",
     displayAmount: "0.50 USDC",
     amountUsdcBaseUnits: 500_000n,
-    color: "from-purple-500 to-indigo-600",
+    accent: "#a855f7",
   },
   {
     id: "crown",
@@ -34,7 +39,7 @@ export const EMOTES = [
     name: "King/Queen",
     displayAmount: "1.00 USDC",
     amountUsdcBaseUnits: 1_000_000n,
-    color: "from-amber-400 to-yellow-600",
+    accent: "#fbbf24",
   },
   {
     id: "gem",
@@ -43,6 +48,6 @@ export const EMOTES = [
     name: "Diamond Hands",
     displayAmount: "2.50 USDC",
     amountUsdcBaseUnits: 2_500_000n,
-    color: "from-cyan-400 to-blue-600",
+    accent: "#22d3ee",
   },
 ] as const satisfies readonly Emote[];
