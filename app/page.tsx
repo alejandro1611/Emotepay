@@ -5,10 +5,10 @@ import {
   AlertCircle,
   CheckCircle2,
   ExternalLink,
+  Info,
   Loader2,
   Radio,
   Send,
-  Sparkles,
   Tv,
 } from "lucide-react";
 import { usePrivy, useSendTransaction, useWallets } from "@privy-io/react-auth";
@@ -37,6 +37,12 @@ const kickChannel = process.env.NEXT_PUBLIC_KICK_CHANNEL?.trim().replace(/^@/, "
 const kickPlayerUrl = kickChannel
   ? `https://player.kick.com/${encodeURIComponent(kickChannel)}?autoplay=true&muted=true`
   : null;
+// El ancho del video se topa contra el alto de la ventana para que las
+// tarjetas de reacción entren sin scroll. 24rem es el alto fijo de todo lo
+// demás (header, paddings, tarjetas y botón) y los 3rem compensan el padding
+// horizontal, que el max-width incluye por el box-sizing de Tailwind.
+const STREAM_COLUMN_MAX_WIDTH =
+  "min(896px, calc((100vh - 24rem) * 16 / 9 + 3rem))";
 
 type BalanceCheckState =
   | { status: "idle" }
@@ -227,31 +233,29 @@ function getExplorerTransactionUrl(hash: `0x${string}`) {
   return `https://testnet.monadexplorer.com/tx/${hash}`;
 }
 
-function KickStreamPlayer({ compact = false }: { compact?: boolean }) {
-  const roundedClass = compact ? "rounded-xl" : "rounded-2xl";
-
+// El recorte redondeado vive en un envoltorio interno para que los overlays
+// que recibe como children puedan desbordar el video, como el popover de
+// detalles en pantallas donde el reproductor es chico.
+function KickStreamPlayer({ children }: { children?: React.ReactNode }) {
   return (
-    <div
-      className={`relative aspect-video ${roundedClass} bg-slate-950 border border-slate-800 overflow-hidden shadow-2xl`}
-    >
-      {kickPlayerUrl ? (
-        <iframe
-          src={kickPlayerUrl}
-          title="Kick livestream"
-          allow="autoplay; fullscreen; picture-in-picture"
-          allowFullScreen
-          className="absolute inset-0 h-full w-full"
-        />
-      ) : (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950 text-slate-500">
-          <Tv
-            className={`${compact ? "w-9 h-9" : "w-14 h-14 sm:w-16 sm:h-16"} stroke-[1] mb-2 opacity-50`}
+    <div className="relative aspect-video w-full">
+      <div className="absolute inset-0 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl">
+        {kickPlayerUrl ? (
+          <iframe
+            src={kickPlayerUrl}
+            title="Kick livestream"
+            allow="autoplay; fullscreen; picture-in-picture"
+            allowFullScreen
+            className="absolute inset-0 h-full w-full"
           />
-          <p className={compact ? "text-xs" : "text-sm"}>
-            Kick stream not configured
-          </p>
-        </div>
-      )}
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950 text-slate-500">
+            <Tv className="w-14 h-14 sm:w-16 sm:h-16 stroke-[1] mb-2 opacity-50" />
+            <p className="text-sm">Kick stream not configured</p>
+          </div>
+        )}
+      </div>
+      {children}
     </div>
   );
 }
@@ -451,6 +455,15 @@ export default function Home() {
 
     return `Send ${selectedEmote.name}`;
   })();
+  // Sobre el video solo van los estados que piden atención: el aviso de
+  // "Ready to send" quedaría fijo encima del stream sin aportar nada.
+  const overlayNotice =
+    paymentNotice &&
+    (paymentNotice.tone === "error" ||
+      paymentNotice.tone === "active" ||
+      (paymentNotice.tone === "success" && showSuccessBanner))
+      ? paymentNotice
+      : null;
 
   useEffect(() => {
     if (
@@ -743,244 +756,168 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
-        <section className="lg:col-span-5 lg:order-2 flex flex-col gap-5">
-          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl">
-            <div className="mb-5 rounded-xl border border-emerald-400/20 bg-emerald-400/10 p-3">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-amber-400 to-purple-500 flex items-center justify-center text-lg font-black text-slate-950 shrink-0">
-                  {demoCreator.displayName.slice(0, 1)}
-                </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-emerald-300 flex items-center gap-2">
-                    <Radio className="w-3.5 h-3.5" />
-                    Live creator
-                  </p>
-                  <p className="truncate text-base font-black text-white">
-                    {demoCreator.displayName}
-                  </p>
-                </div>
-              </div>
-              <p className="mt-2 text-sm text-emerald-50/80">
-                Your reaction supports this creator after the payment is
-                confirmed.
-              </p>
+      <div
+        className="mx-auto w-full px-4 sm:px-6 py-5"
+        style={{ maxWidth: STREAM_COLUMN_MAX_WIDTH }}
+      >
+        <KickStreamPlayer>
+          <div className="absolute left-3 top-3 flex items-center gap-2 rounded-full border border-slate-700 bg-slate-950/80 py-1.5 pl-1.5 pr-3.5 backdrop-blur-sm">
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-tr from-amber-400 to-purple-500 text-xs font-black text-slate-950">
+              {demoCreator.displayName.slice(0, 1)}
             </div>
-
-            <div className="lg:hidden mb-5">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-                  <Tv className="w-3.5 h-3.5 text-purple-400" />
-                  Stream preview
-                </p>
-                <span className="text-[11px] text-purple-300">
-                  Live on Kick
-                </span>
-              </div>
-              <KickStreamPlayer compact />
-            </div>
-
-            <div className="mb-5">
-              <h1 className="text-2xl font-black text-white leading-tight">
-                Send a reaction
-              </h1>
-              <p className="text-sm text-slate-400 mt-1">
-                Choose a reaction that carries value. You will see the exact USDC
-                amount before approval.
-              </p>
-            </div>
-
-            <form onSubmit={handleSendReaction} className="flex flex-col gap-5">
-              <div>
-                <div className="flex items-center justify-between gap-3 mb-3">
-                  <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                    Pick a reaction
-                  </label>
-                  <span className="text-[11px] text-slate-500">
-                    Fixed demo amounts
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  {EMOTES.map((emote) => {
-                    const isSelected = selectedEmote.id === emote.id;
-
-                    return (
-                      <button
-                        type="button"
-                        key={emote.id}
-                        onClick={() => setSelectedEmote(emote)}
-                        disabled={isActivePayment}
-                        aria-pressed={isSelected}
-                        className={`min-h-28 p-3 rounded-xl border transition-all flex flex-col items-start justify-between text-left disabled:cursor-not-allowed disabled:opacity-70 ${
-                          isSelected
-                            ? "bg-purple-600/15 border-purple-400 shadow-lg shadow-purple-500/10"
-                            : "bg-slate-950/60 border-slate-800 hover:border-slate-700"
-                        }`}
-                      >
-                        <span className="text-3xl leading-none">
-                          {emote.emoji}
-                        </span>
-                        <span>
-                          <span className="block text-sm font-bold text-slate-100">
-                            {emote.name}
-                          </span>
-                          <span className="block text-xs font-semibold text-purple-300">
-                            {emote.displayAmount}
-                          </span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-xs text-slate-500">You are sending</p>
-                    <p className="text-base font-bold text-white">
-                      {selectedEmote.emoji} {selectedEmote.name}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs text-slate-500">Exact amount</p>
-                    <p className="text-base font-black text-emerald-300">
-                      {selectedAmountLabel}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={!canSendReaction}
-                className={`w-full py-3.5 px-5 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 shadow-lg bg-gradient-to-r ${selectedEmote.color} hover:opacity-95 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed`}
-              >
-                {isActivePayment ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4" />
-                )}
-                {sendButtonLabel}
-              </button>
-
-              {paymentNotice && (
-                <div
-                  role={paymentNotice.tone === "error" ? "alert" : "status"}
-                  aria-live={
-                    paymentNotice.tone === "error" ? "assertive" : "polite"
-                  }
-                  className={`rounded-xl border p-4 ${
-                    paymentNotice.tone === "success"
-                      ? "bg-emerald-500/10 border-emerald-500/30"
-                      : paymentNotice.tone === "error"
-                        ? "bg-amber-500/10 border-amber-500/30"
-                        : paymentNotice.tone === "active"
-                          ? "bg-purple-500/10 border-purple-500/30"
-                          : "bg-slate-950/70 border-slate-800"
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    {paymentNotice.tone === "success" ? (
-                      <CheckCircle2 className="w-5 h-5 text-emerald-300 mt-0.5 shrink-0" />
-                    ) : paymentNotice.tone === "error" ? (
-                      <AlertCircle className="w-5 h-5 text-amber-300 mt-0.5 shrink-0" />
-                    ) : paymentNotice.tone === "active" ? (
-                      <Loader2 className="w-5 h-5 text-purple-300 mt-0.5 shrink-0 animate-spin" />
-                    ) : (
-                      <Sparkles className="w-5 h-5 text-slate-400 mt-0.5 shrink-0" />
-                    )}
-                    <div>
-                      <p className="text-sm font-bold text-white">
-                        {paymentNotice.title}
-                      </p>
-                      <p className="text-sm text-slate-300 mt-1">
-                        {paymentNotice.body}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <details className="group rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3">
-                <summary className="cursor-pointer list-none text-sm font-semibold text-slate-300 flex items-center justify-between gap-3">
-                  Transaction details
-                  <span className="text-xs text-slate-500 group-open:hidden">
-                    Show
-                  </span>
-                  <span className="hidden text-xs text-slate-500 group-open:inline">
-                    Hide
-                  </span>
-                </summary>
-                <dl className="mt-4 grid grid-cols-1 gap-3 text-xs">
-                  <div className="flex items-center justify-between gap-3">
-                    <dt className="text-slate-500">Network</dt>
-                    <dd className="text-slate-300">
-                      {monadTestnet.name} ({monadTestnet.id})
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <dt className="text-slate-500">Your wallet</dt>
-                    <dd className="font-mono text-slate-300">
-                      {shortenAddress(embeddedWalletAddress)}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <dt className="text-slate-500">Creator wallet</dt>
-                    <dd className="font-mono text-slate-300">
-                      {shortenAddress(demoCreator.walletAddress)}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <dt className="text-slate-500">Contract</dt>
-                    <dd className="font-mono text-slate-300">
-                      {shortenAddress(emotePayContract.address)}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <dt className="text-slate-500">USDC token</dt>
-                    <dd className="font-mono text-slate-300">
-                      {effectiveBalanceCheck.status === "ready"
-                        ? shortenAddress(effectiveBalanceCheck.usdcAddress)
-                        : "Pending check"}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <dt className="text-slate-500">Transaction</dt>
-                    <dd className="font-mono text-slate-300">
-                      {lastHash ? shortenAddress(lastHash) : "Pending send"}
-                    </dd>
-                  </div>
-                  {lastHash && (
-                    <a
-                      href={getExplorerTransactionUrl(lastHash)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-purple-300 hover:text-purple-200 inline-flex items-center gap-1"
-                    >
-                      View on Monad explorer
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  )}
-                </dl>
-              </details>
-            </form>
-          </div>
-        </section>
-
-        <section className="hidden lg:col-span-7 lg:order-1 lg:flex flex-col gap-4">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-              <Tv className="w-4 h-4 text-purple-400" />
-              Stream preview
-            </h2>
-            <span className="text-xs bg-purple-500/10 text-purple-300 px-2.5 py-1 rounded-full border border-purple-500/20">
-              Live on Kick
+            <span className="text-[13px] font-bold text-white">
+              {demoCreator.displayName}
             </span>
           </div>
 
-          <KickStreamPlayer />
-        </section>
+          <div className="absolute right-3 top-3 flex items-center gap-2">
+            <span className="flex items-center gap-2 rounded-full border border-emerald-700 bg-slate-950/80 px-3 py-1.5 text-xs font-semibold text-emerald-300 backdrop-blur-sm">
+              <Radio className="h-3.5 w-3.5" />
+              Live on Kick
+            </span>
+            <details className="relative">
+              <summary
+                aria-label="Transaction details"
+                className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-full border border-slate-700 bg-slate-950/80 text-slate-300 backdrop-blur-sm transition-colors hover:text-white"
+              >
+                <Info className="h-4 w-4" />
+              </summary>
+              <dl className="absolute right-0 top-full z-40 mt-2 grid w-[min(20rem,calc(100vw-2rem))] grid-cols-1 gap-3 rounded-xl border border-slate-700 bg-slate-900/95 p-4 text-xs shadow-2xl backdrop-blur-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-slate-400">Network</dt>
+                  <dd className="text-slate-300">
+                    {monadTestnet.name} ({monadTestnet.id})
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-slate-400">Your wallet</dt>
+                  <dd className="font-mono text-slate-300">
+                    {shortenAddress(embeddedWalletAddress)}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-slate-400">Creator wallet</dt>
+                  <dd className="font-mono text-slate-300">
+                    {shortenAddress(demoCreator.walletAddress)}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-slate-400">Contract</dt>
+                  <dd className="font-mono text-slate-300">
+                    {shortenAddress(emotePayContract.address)}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-slate-400">USDC token</dt>
+                  <dd className="font-mono text-slate-300">
+                    {effectiveBalanceCheck.status === "ready"
+                      ? shortenAddress(effectiveBalanceCheck.usdcAddress)
+                      : "Pending check"}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-slate-400">Transaction</dt>
+                  <dd className="font-mono text-slate-300">
+                    {lastHash ? shortenAddress(lastHash) : "Pending send"}
+                  </dd>
+                </div>
+                {lastHash && (
+                  <a
+                    href={getExplorerTransactionUrl(lastHash)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-purple-300 hover:text-purple-200"
+                  >
+                    View on Monad explorer
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+              </dl>
+            </details>
+          </div>
+
+          {overlayNotice && (
+            <div
+              role={overlayNotice.tone === "error" ? "alert" : "status"}
+              aria-live={overlayNotice.tone === "error" ? "assertive" : "polite"}
+              className={`absolute bottom-3 left-3 right-3 rounded-xl border p-3 backdrop-blur-sm sm:right-auto sm:max-w-md ${
+                overlayNotice.tone === "success"
+                  ? "border-emerald-600 bg-emerald-950/90"
+                  : overlayNotice.tone === "error"
+                    ? "border-amber-600 bg-amber-950/90"
+                    : "border-purple-600 bg-purple-950/90"
+              }`}
+            >
+              <div className="flex items-start gap-2.5">
+                {overlayNotice.tone === "success" ? (
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
+                ) : overlayNotice.tone === "error" ? (
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                ) : (
+                  <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-purple-300" />
+                )}
+                <div className="min-w-0">
+                  <p className="text-[13px] font-bold text-white">
+                    {overlayNotice.title}
+                  </p>
+                  <p className="mt-0.5 text-[13px] text-slate-200">
+                    {overlayNotice.body}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </KickStreamPlayer>
+
+        <form onSubmit={handleSendReaction}>
+          <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+            {EMOTES.map((emote) => {
+              const isSelected = selectedEmote.id === emote.id;
+              const [amountValue, amountUnit] = emote.displayAmount.split(" ");
+
+              return (
+                <button
+                  type="button"
+                  key={emote.id}
+                  onClick={() => setSelectedEmote(emote)}
+                  disabled={isActivePayment}
+                  aria-pressed={isSelected}
+                  className={`flex min-h-44 flex-col items-center justify-center rounded-[20px] border px-3 py-5 transition-all disabled:cursor-not-allowed disabled:opacity-70 sm:min-h-48 ${
+                    isSelected
+                      ? "border-purple-400 bg-purple-600/15 shadow-lg shadow-purple-500/10"
+                      : "border-slate-800 bg-slate-950/60 hover:border-slate-700"
+                  }`}
+                >
+                  <span className="text-[56px] leading-none sm:text-[64px]">
+                    {emote.emoji}
+                  </span>
+                  <span className="mt-3 text-sm font-bold text-slate-300">
+                    {emote.name}
+                  </span>
+                  <span className="mt-0.5 text-xl font-extrabold text-white">
+                    {amountValue}{" "}
+                    <span className="text-[13px] font-bold text-slate-400">
+                      {amountUnit}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <button
+            type="submit"
+            disabled={!canSendReaction}
+            className={`mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r px-5 py-3.5 text-sm font-bold shadow-lg transition-all ${selectedEmote.color} hover:opacity-95 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50`}
+          >
+            {isActivePayment ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+            {sendButtonLabel}
+          </button>
+        </form>
       </div>
     </main>
   );
