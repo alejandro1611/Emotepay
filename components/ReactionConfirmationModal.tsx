@@ -205,10 +205,15 @@ export function ReactionConfirmationModal({
 
         {phase === "review" && (
           <div className="mt-5">
+            {/* El accent de la reacción es un hex dinámico: el degradado va en
+                estilos en línea porque Tailwind no genera clases en runtime. */}
             <button
               type="button"
               onClick={onConfirm}
-              className={`w-full rounded-xl bg-gradient-to-r ${emote.color} px-5 py-3.5 text-sm font-bold text-white shadow-lg transition-all hover:scale-[1.01] hover:opacity-95 active:scale-[0.99]`}
+              style={{
+                backgroundImage: `linear-gradient(to right, ${emote.accent}, ${emote.accent}b3)`,
+              }}
+              className="w-full rounded-xl px-5 py-3.5 text-sm font-bold text-white shadow-lg transition-all hover:scale-[1.01] hover:opacity-95 active:scale-[0.99]"
             >
               Confirm &amp; Send
             </button>
@@ -277,7 +282,10 @@ export function ReactionConfirmationModal({
             <button
               type="button"
               onClick={onConfirm}
-              className={`mt-3 w-full rounded-xl bg-gradient-to-r ${emote.color} px-5 py-3.5 text-sm font-bold text-white shadow-lg transition-all hover:scale-[1.01] hover:opacity-95 active:scale-[0.99]`}
+              style={{
+                backgroundImage: `linear-gradient(to right, ${emote.accent}, ${emote.accent}b3)`,
+              }}
+              className="mt-3 w-full rounded-xl px-5 py-3.5 text-sm font-bold text-white shadow-lg transition-all hover:scale-[1.01] hover:opacity-95 active:scale-[0.99]"
             >
               Try again
             </button>
