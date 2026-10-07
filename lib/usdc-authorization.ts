@@ -26,9 +26,62 @@ export type ReceiveAuthorizationMessage = {
   nonce: Hex;
 };
 
+export type ReceiveAuthorizationSigningMessage = Omit<
+  ReceiveAuthorizationMessage,
+  "value" | "validAfter" | "validBefore"
+> & {
+  value: string;
+  validAfter: string;
+  validBefore: string;
+};
+
+export type RelayDonationRequestPayload = {
+  contractAddress: Address;
+  usdcAddress: Address;
+  donor: Address;
+  creator: Address;
+  emoteId: string;
+  validAfter: string;
+  validBefore: string;
+  randomSalt: Hex;
+  signature: Hex;
+};
+
 export function createReceiveAuthorizationValidity(nowSeconds: number) {
   return {
     validAfter: BigInt(Math.max(0, nowSeconds - 30)),
     validBefore: BigInt(nowSeconds + RECEIVE_AUTHORIZATION_VALIDITY_SECONDS),
+  };
+}
+
+export function createReceiveAuthorizationSigningMessage({
+  value,
+  validAfter,
+  validBefore,
+  ...message
+}: ReceiveAuthorizationMessage): ReceiveAuthorizationSigningMessage {
+  return {
+    ...message,
+    value: value.toString(),
+    validAfter: validAfter.toString(),
+    validBefore: validBefore.toString(),
+  };
+}
+
+export function createRelayDonationRequestPayload({
+  emoteId,
+  validAfter,
+  validBefore,
+  ...payload
+}: Omit<RelayDonationRequestPayload, "emoteId" | "validAfter" | "validBefore"> & {
+  emoteId: bigint | number;
+  validAfter: bigint;
+  validBefore: bigint;
+}): RelayDonationRequestPayload {
+  return {
+    ...payload,
+    emoteId: emoteId.toString(),
+    validAfter: validAfter.toString(),
+    validBefore: validBefore.toString(),
   };
 }

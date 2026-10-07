@@ -27,6 +27,14 @@ export function getAuthorizationWindowError({
   return null;
 }
 
+export function parseUnsignedDecimalString(value: unknown, label: string): bigint {
+  if (typeof value !== "string" || !/^\d+$/.test(value)) {
+    throw new Error(`${label} must be an unsigned integer string.`);
+  }
+
+  return BigInt(value);
+}
+
 export class RelayedAuthorizationMemory {
   private readonly pendingAuthorizations = new Set<string>();
   private readonly relayedAuthorizationHashes = new Map<

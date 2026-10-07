@@ -13,13 +13,20 @@ import {
 } from "lucide-react";
 import { usePrivy, useSignTypedData, useWallets } from "@privy-io/react-auth";
 import { AuthButton } from "@/components/AuthButton";
+import {
+  ReactionConfirmationModal,
+  type ConfirmationPhase,
+} from "@/components/ReactionConfirmationModal";
 import { monadTestnet } from "@/lib/chains";
 import { emotePayContract } from "@/lib/contracts";
 import { demoCreator } from "@/lib/creator";
 import { EMOTES, type Emote } from "@/lib/emotes";
 import { getPaymentReadinessState } from "@/lib/payment";
 import {
+  createReceiveAuthorizationSigningMessage,
+  createRelayDonationRequestPayload,
   createReceiveAuthorizationValidity,
+  RECEIVE_AUTHORIZATION_VALIDITY_SECONDS,
   receiveWithAuthorizationTypes,
   USDC_EIP712_NAME,
   USDC_EIP712_VERSION,
@@ -62,6 +69,15 @@ type TransactionState =
   | { status: "confirming"; hash: `0x${string}` }
   | { status: "success"; reference: `0x${string}` }
   | { status: "failure"; reason: string };
+
+type ReactionConfirmation = {
+  phase: ConfirmationPhase;
+  emote: Emote;
+  usdcAddress: Address;
+  contractPrice: bigint;
+  errorMessage?: string;
+  notice?: string;
+};
 
 type RelayDonationResponse =
   | {
@@ -241,6 +257,9 @@ export default function Home() {
     status: "idle",
   });
   const [showSuccessBanner, setShowSuccessBanner] = useState(false);
+  const [confirmation, setConfirmation] = useState<ReactionConfirmation | null>(
+    null,
+  );
 
   const embeddedWallet = useMemo(() => getEmbeddedWallet(wallets), [wallets]);
   const embeddedWalletAddress = embeddedWallet?.address as Address | undefined;
@@ -483,11 +502,25 @@ export default function Home() {
     };
   }, [showSuccessBanner]);
 
-  const handleSendReaction = async (e: React.FormEvent) => {
+  useEffect(() => {
+    if (confirmation?.phase !== "delivered") {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setConfirmation(null);
+    }, 1800);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [confirmation?.phase]);
+
+  const handleSendReaction = (e: React.FormEvent) => {
     e.preventDefault();
     setShowSuccessBanner(false);
 
-    if (!canSendReaction) {
+    if (!canSendReaction || effectiveBalanceCheck.status !== "ready") {
       setTransactionState({
         status: "failure",
         reason:
@@ -507,17 +540,60 @@ export default function Home() {
       return;
     }
 
-    try {
-      setTransactionState({ status: "awaiting-approval" });
+    setTransactionState({ status: "idle" });
+    setConfirmation({
+      phase: "review",
+      emote: selectedEmote,
+      usdcAddress: effectiveBalanceCheck.usdcAddress,
+      contractPrice: effectiveBalanceCheck.contractPrice,
+    });
+  };
 
+  const handleConfirmReaction = async () => {
+    const pending = confirmation;
+
+    if (
+      !pending ||
+      (pending.phase !== "review" && pending.phase !== "failed")
+    ) {
+      return;
+    }
+
+    if (!embeddedWallet || !demoCreator.walletAddress || !emotePayContract.address) {
+      const reason = "This payment page is not configured yet.";
+      setTransactionState({ status: "failure", reason });
+      setConfirmation({ ...pending, phase: "failed", errorMessage: reason });
+      return;
+    }
+
+    setConfirmation({ ...pending, phase: "signing" });
+    setTransactionState({ status: "awaiting-approval" });
+
+    try {
       await embeddedWallet.switchChain(monadTestnet.id);
 
       const donorAddress = embeddedWallet.address as Address;
       const requirements = await getPaymentRequirements({
         contractAddress: emotePayContract.address,
         donorAddress,
-        onchainId: selectedEmote.onchainId,
+        onchainId: pending.emote.onchainId,
       });
+
+      if (
+        !isAddressEqual(requirements.usdcAddress, pending.usdcAddress) ||
+        requirements.contractPrice !== pending.contractPrice
+      ) {
+        setConfirmation({
+          phase: "review",
+          emote: pending.emote,
+          usdcAddress: requirements.usdcAddress,
+          contractPrice: requirements.contractPrice,
+          notice:
+            "The reaction amount changed. Please review it again before confirming.",
+        });
+        setTransactionState({ status: "idle" });
+        return;
+      }
 
       if (requirements.usdcBalance < requirements.contractPrice) {
         const reason = `Your embedded wallet needs at least ${formatUsdcAmount(
@@ -531,6 +607,7 @@ export default function Home() {
           status: "failure",
           reason,
         });
+        setConfirmation({ ...pending, phase: "failed", errorMessage: reason });
         return;
       }
 
@@ -545,10 +622,18 @@ export default function Home() {
         args: [
           donorAddress,
           demoCreator.walletAddress,
-          BigInt(selectedEmote.onchainId),
-          requirements.contractPrice,
+          BigInt(pending.emote.onchainId),
+          pending.contractPrice,
           randomSalt,
         ],
+      });
+      const authorizationMessage = createReceiveAuthorizationSigningMessage({
+        from: donorAddress,
+        to: emotePayContract.address,
+        value: pending.contractPrice,
+        validAfter,
+        validBefore,
+        nonce,
       });
       const { signature } = await signTypedData(
         {
@@ -556,24 +641,21 @@ export default function Home() {
             name: USDC_EIP712_NAME,
             version: USDC_EIP712_VERSION,
             chainId: monadTestnet.id,
-            verifyingContract: requirements.usdcAddress,
+            verifyingContract: pending.usdcAddress,
           },
           primaryType: "ReceiveWithAuthorization",
           types: receiveWithAuthorizationTypes,
-          message: {
-            from: donorAddress,
-            to: emotePayContract.address,
-            value: requirements.contractPrice,
-            validAfter,
-            validBefore,
-            nonce,
-          },
+          message: authorizationMessage,
         },
         {
           address: embeddedWallet.address,
+          uiOptions: { showWalletUIs: false },
         },
       );
 
+      setConfirmation((current) =>
+        current ? { ...current, phase: "sending" } : current,
+      );
       setTransactionState({ status: "submitting" });
 
       const relayResponse = await fetch("/api/relay-donation", {
@@ -581,28 +663,34 @@ export default function Home() {
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify({
+        body: JSON.stringify(createRelayDonationRequestPayload({
           contractAddress: emotePayContract.address,
-          usdcAddress: requirements.usdcAddress,
+          usdcAddress: pending.usdcAddress,
           donor: donorAddress,
           creator: demoCreator.walletAddress,
-          emoteId: selectedEmote.onchainId.toString(),
-          validAfter: validAfter.toString(),
-          validBefore: validBefore.toString(),
+          emoteId: pending.emote.onchainId,
+          validAfter,
+          validBefore,
           randomSalt,
-          signature,
-        }),
+          signature: signature as Hex,
+        })),
       });
       const relayResult = (await relayResponse.json()) as RelayDonationResponse;
 
       if (!relayResponse.ok || "error" in relayResult) {
+        const reason =
+          "error" in relayResult
+            ? relayResult.error
+            : "The relayer could not submit this reaction.";
         setTransactionState({
           status: "failure",
-          reason:
-            "error" in relayResult
-              ? relayResult.error
-              : "The relayer could not submit this reaction.",
+          reason,
         });
+        setConfirmation((current) =>
+          current
+            ? { ...current, phase: "failed", errorMessage: reason }
+            : current,
+        );
         return;
       }
 
@@ -613,21 +701,35 @@ export default function Home() {
       });
 
       if (receipt.status !== "success") {
+        const reason =
+          "Monad did not complete this payment, so the reaction was not sent.";
         setTransactionState({
           status: "failure",
-          reason: "Monad did not complete this payment, so the reaction was not sent.",
+          reason,
         });
+        setConfirmation((current) =>
+          current
+            ? { ...current, phase: "failed", errorMessage: reason }
+            : current,
+        );
         return;
       }
 
       setTransactionState({ status: "success", reference: relayResult.hash });
+      setConfirmation((current) =>
+        current ? { ...current, phase: "delivered" } : current,
+      );
       setShowSuccessBanner(true);
       setMessage("");
     } catch (error) {
+      const reason = getTransactionErrorMessage(error);
       setTransactionState({
         status: "failure",
-        reason: getTransactionErrorMessage(error),
+        reason,
       });
+      setConfirmation((current) =>
+        current ? { ...current, phase: "failed", errorMessage: reason } : current,
+      );
     }
   };
 
@@ -913,6 +1015,25 @@ export default function Home() {
           <KickStreamPlayer />
         </section>
       </div>
+
+      {confirmation && (
+        <ReactionConfirmationModal
+          phase={confirmation.phase}
+          emote={confirmation.emote}
+          amountLabel={formatUsdcAmount(confirmation.contractPrice)}
+          creatorName={demoCreator.displayName}
+          creatorAddress={demoCreator.walletAddress}
+          contractAddress={emotePayContract.address}
+          usdcAddress={confirmation.usdcAddress}
+          networkName={monadTestnet.name}
+          chainId={monadTestnet.id}
+          authorizationValiditySeconds={RECEIVE_AUTHORIZATION_VALIDITY_SECONDS}
+          errorMessage={confirmation.errorMessage}
+          notice={confirmation.notice}
+          onConfirm={handleConfirmReaction}
+          onDismiss={() => setConfirmation(null)}
+        />
+      )}
     </main>
   );
 }

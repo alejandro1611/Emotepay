@@ -17,6 +17,7 @@ import {
   getAuthorizationWindowError,
   getRelayAuthorizationKey,
   MAX_RELAY_REQUEST_BYTES,
+  parseUnsignedDecimalString,
   RelayedAuthorizationMemory,
 } from "@/lib/relay-donation-preflight";
 import {
@@ -80,14 +81,6 @@ function requireHexLength(value: Hex, label: string, length: number) {
   }
 }
 
-function parseUint(value: unknown, label: string): bigint {
-  if (typeof value !== "string" || !/^\d+$/.test(value)) {
-    throw new Error(`${label} must be an unsigned integer string.`);
-  }
-
-  return BigInt(value);
-}
-
 export async function POST(request: NextRequest) {
   let body: unknown;
 
@@ -132,9 +125,9 @@ export async function POST(request: NextRequest) {
     const usdcAddress = parseAddress(payload.usdcAddress, "usdcAddress");
     const randomSalt = parseHex(payload.randomSalt, "randomSalt");
     const signature = parseHex(payload.signature, "signature");
-    const emoteId = parseUint(payload.emoteId, "emoteId");
-    const validAfter = parseUint(payload.validAfter, "validAfter");
-    const validBefore = parseUint(payload.validBefore, "validBefore");
+    const emoteId = parseUnsignedDecimalString(payload.emoteId, "emoteId");
+    const validAfter = parseUnsignedDecimalString(payload.validAfter, "validAfter");
+    const validBefore = parseUnsignedDecimalString(payload.validBefore, "validBefore");
 
     if (!isAddressEqual(contractAddress, getAddress(configuredContractAddress))) {
       return badRequest("Unexpected EmotePay contract address.");

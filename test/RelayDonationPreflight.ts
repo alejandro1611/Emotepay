@@ -4,8 +4,13 @@ import { describe, it } from "node:test";
 import {
   getAuthorizationWindowError,
   getRelayAuthorizationKey,
+  parseUnsignedDecimalString,
   RelayedAuthorizationMemory,
 } from "../lib/relay-donation-preflight";
+import {
+  createReceiveAuthorizationSigningMessage,
+  createRelayDonationRequestPayload,
+} from "../lib/usdc-authorization";
 
 describe("relay donation preflights", function () {
   const donor = "0x0000000000000000000000000000000000000001";
@@ -71,5 +76,57 @@ describe("relay donation preflights", function () {
     memory.remember(key, relayed);
 
     assert.deepEqual(memory.getRelayed(key), relayed);
+  });
+
+  it("serializes the V3 signing message and relay request without raw bigint values", function () {
+    const validAfter = 1_700_000_000n;
+    const validBefore = 1_700_000_300n;
+    const signingMessage = createReceiveAuthorizationSigningMessage({
+      from: donor,
+      to: "0x0000000000000000000000000000000000000003",
+      value: 100_000n,
+      validAfter,
+      validBefore,
+      nonce,
+    });
+    const relayPayload = createRelayDonationRequestPayload({
+      contractAddress: "0x0000000000000000000000000000000000000003",
+      usdcAddress: "0x0000000000000000000000000000000000000004",
+      donor,
+      creator: "0x0000000000000000000000000000000000000005",
+      emoteId: 1n,
+      validAfter,
+      validBefore,
+      randomSalt:
+        "0x0000000000000000000000000000000000000000000000000000000000000006",
+      signature:
+        "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    });
+
+    assert.doesNotThrow(() => JSON.stringify(signingMessage));
+    assert.doesNotThrow(() => JSON.stringify(relayPayload));
+    assert.equal(signingMessage.value, "100000");
+    assert.equal(signingMessage.validAfter, validAfter.toString());
+    assert.equal(signingMessage.validBefore, validBefore.toString());
+    assert.equal(parseUnsignedDecimalString(relayPayload.emoteId, "emoteId"), 1n);
+    assert.equal(
+      parseUnsignedDecimalString(relayPayload.validAfter, "validAfter"),
+      validAfter,
+    );
+    assert.equal(
+      parseUnsignedDecimalString(relayPayload.validBefore, "validBefore"),
+      validBefore,
+    );
+  });
+
+  it("rejects malformed relay numeric strings", function () {
+    assert.throws(
+      () => parseUnsignedDecimalString("1.5", "validAfter"),
+      /validAfter must be an unsigned integer string/,
+    );
+    assert.throws(
+      () => parseUnsignedDecimalString(1n, "validBefore"),
+      /validBefore must be an unsigned integer string/,
+    );
   });
 });
