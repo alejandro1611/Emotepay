@@ -1,6 +1,6 @@
 # EmotePay Envio HyperIndex
 
-Indexes `Donation` events from the deployed EmotePay V2 USDC contract on Monad Testnet.
+Indexes `Donation` events from the deployed EmotePay V3 USDC receive-authorization contract on Monad Testnet.
 
 ## Docs Used
 
@@ -9,8 +9,9 @@ Indexes `Donation` events from the deployed EmotePay V2 USDC contract on Monad T
 
 ## Contract
 
-- V2 USDC address: `0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A`
-- V2 start block: `67874925`
+- V3 address: `0x3AF2ADcF3e58a80710d406d0917b5f14FD78F9C4`
+- V3 start block: `68828412`
+- V3 deployment transaction: `0x46b3c00d01c0111da5384351409b3265f26e10b6ddf199b720d993e1070bfd18`
 - Event: `Donation(address indexed donor, address indexed creator, uint256 amount, uint256 indexed emoteId)`
 - Amount semantics: USDC base units, 6 decimals.
 
@@ -42,14 +43,19 @@ http://localhost:8080/v1/graphql
 
 The local Hasura admin secret is documented by Envio as `testing`.
 
-## Historical V1 MON Deployment
+## Historical Deployments
 
-The previous native MON contract remains historical V1 infrastructure and is not indexed by the current V2 config:
+The previous native MON contract remains historical V1 infrastructure and is not indexed by the current V3 config:
 
 - V1 MON address: `0x039dd378eDD477aa7cd200953254a52D44f844A3`
 - V1 start block: `66559947`
 
-Do not treat historical V1 MON events as V2 USDC events.
+The approve-then-donate USDC deployment remains historical V2 infrastructure and is not indexed by the current V3 config:
+
+- V2 USDC address: `0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A`
+- V2 start block: `67874925`
+
+Do not treat historical V1 MON or V2 USDC events as V3 receive-authorization USDC events. Use a clean V3 dataset when validating SPEC-009.
 
 ## Known V1 Donation To Verify Historical Data
 

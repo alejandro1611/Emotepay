@@ -4,15 +4,34 @@ pragma solidity ^0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+interface IUSDC is IERC20 {
+    function receiveWithAuthorization(
+        address from,
+        address to,
+        uint256 value,
+        uint256 validAfter,
+        uint256 validBefore,
+        bytes32 nonce,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external;
+}
+
 contract EmotePay {
-    using SafeERC20 for IERC20;
+    using SafeERC20 for IUSDC;
 
     error InvalidCreator();
+    error InvalidDonor();
     error InvalidPaymentToken();
     error InvalidEmote();
     error SelfDonationNotAllowed();
+    error PersistentCustodyInvariant();
 
-    IERC20 public immutable usdc;
+    IUSDC public immutable usdc;
+
+    bytes32 public constant DONATION_AUTHORIZATION_NONCE_DOMAIN =
+        keccak256("EmotePay.receiveWithAuthorizationDonation.v1");
 
     uint256 public constant HYPE_FIRE_EMOTE_ID = 1;
     uint256 public constant TO_THE_MOON_EMOTE_ID = 2;
@@ -31,7 +50,7 @@ contract EmotePay {
         uint256 indexed emoteId
     );
 
-    constructor(IERC20 usdcToken) {
+    constructor(IUSDC usdcToken) {
         if (address(usdcToken) == address(0)) revert InvalidPaymentToken();
 
         usdc = usdcToken;
@@ -55,5 +74,72 @@ contract EmotePay {
         usdc.safeTransferFrom(msg.sender, creator, amount);
 
         emit Donation(msg.sender, creator, amount, emoteId);
+    }
+
+    function computeDonationAuthorizationNonce(
+        address donor,
+        address creator,
+        uint256 emoteId,
+        uint256 exactPrice,
+        bytes32 randomSalt
+    ) public view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                DONATION_AUTHORIZATION_NONCE_DOMAIN,
+                block.chainid,
+                address(this),
+                address(usdc),
+                donor,
+                creator,
+                emoteId,
+                exactPrice,
+                randomSalt
+            )
+        );
+    }
+
+    function donateWithAuthorization(
+        address donor,
+        address creator,
+        uint256 emoteId,
+        uint256 validAfter,
+        uint256 validBefore,
+        bytes32 randomSalt,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external {
+        if (donor == address(0)) revert InvalidDonor();
+        if (creator == address(0)) revert InvalidCreator();
+        if (donor == creator) revert SelfDonationNotAllowed();
+
+        uint256 amount = getEmotePrice(emoteId);
+        bytes32 nonce = computeDonationAuthorizationNonce(
+            donor,
+            creator,
+            emoteId,
+            amount,
+            randomSalt
+        );
+        uint256 balanceBefore = usdc.balanceOf(address(this));
+
+        usdc.receiveWithAuthorization(
+            donor,
+            address(this),
+            amount,
+            validAfter,
+            validBefore,
+            nonce,
+            v,
+            r,
+            s
+        );
+        usdc.safeTransfer(creator, amount);
+
+        if (usdc.balanceOf(address(this)) != balanceBefore) {
+            revert PersistentCustodyInvariant();
+        }
+
+        emit Donation(donor, creator, amount, emoteId);
     }
 }
