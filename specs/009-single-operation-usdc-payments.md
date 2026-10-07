@@ -17,6 +17,7 @@ State history:
 - APPROVED: Human approval explicitly granted for EIP-3009 `receiveWithAuthorization`, EmotePay V3 as signed payee, relayed `donateWithAuthorization`, and donation-bound nonce commitment.
 - IMPLEMENTING: Implementer began the approved SPEC-009 work.
 - VERIFYING: Pre-deployment blocker fixes were implemented and validation passed; ready for independent deployment review.
+- VERIFYING: V3 deployed on Monad Testnet and runtime configuration moved to the V3 contract; real smoke-test runtime evidence remains pending.
 
 ## Goal
 
@@ -38,6 +39,7 @@ Current V2 flow:
 Current public identifiers:
 
 - EmotePay V2: `0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A`
+- EmotePay V3: `0x3AF2ADcF3e58a80710d406d0917b5f14FD78F9C4`
 - Monad Testnet USDC: `0x534b2f3A21130d7a60830c2Df862319e593943A3`
 - Monad Testnet chain ID: `10143`
 - Donation event shape: `Donation(address indexed donor, address indexed creator, uint256 amount, uint256 indexed emoteId)`
@@ -310,10 +312,17 @@ Pre-deployment blocker fixes:
 
 Post-deployment runtime configuration:
 
-- Frontend and relayer must be configured with `NEXT_PUBLIC_EMOTEPAY_V3_CONTRACT_ADDRESS` only after V3 deployment.
-- OBS must be configured to the V3 contract address for V3 live reactions.
-- Envio must be configured to the V3 contract address and V3 deployment/start block.
+- Frontend and relayer are configured with `NEXT_PUBLIC_EMOTEPAY_V3_CONTRACT_ADDRESS=0x3AF2ADcF3e58a80710d406d0917b5f14FD78F9C4` after V3 deployment.
+- OBS uses the shared active EmotePay contract configuration and is configured to the V3 contract address for V3 live reactions while preserving the same `Donation` ABI.
+- Envio is configured to V3 contract address `0x3AF2ADcF3e58a80710d406d0917b5f14FD78F9C4` and V3 start block `68828412`.
 - V1 MON and V2 USDC deployments remain historical infrastructure and must not be modified by SPEC-009.
+
+V3 deployment record:
+
+- V3 contract: `0x3AF2ADcF3e58a80710d406d0917b5f14FD78F9C4`
+- Deployment transaction: `0x46b3c00d01c0111da5384351409b3265f26e10b6ddf199b720d993e1070bfd18`
+- Deployment block: `68828412`
+- Constructor USDC: `0x534b2f3A21130d7a60830c2Df862319e593943A3`
 
 Validation after blocker fixes:
 

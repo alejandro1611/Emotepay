@@ -35,7 +35,7 @@ Verified behavior:
 
 - Emote metadata is defined in `lib/emotes.ts`.
 - Creator configuration is read from `NEXT_PUBLIC_CREATOR_WALLET_ADDRESS`.
-- Contract configuration is read from `NEXT_PUBLIC_EMOTEPAY_CONTRACT_ADDRESS`, with the current V2 address as the code default.
+- Current V3 contract configuration is read from `NEXT_PUBLIC_EMOTEPAY_V3_CONTRACT_ADDRESS` with no fallback to the historical V2 address.
 - Payment readiness is centralized in `lib/payment.ts`.
 
 Relevant files:
@@ -61,13 +61,16 @@ Status: COMPLETE
 
 Verified behavior:
 
-- V2 `donate(address creator, uint256 emoteId)` is nonpayable and accepts no native donation value.
+- V3 `donateWithAuthorization(address donor, address creator, uint256 emoteId, uint256 validAfter, uint256 validBefore, bytes32 randomSalt, uint8 v, bytes32 r, bytes32 s)` accepts relayed EIP-3009 `receiveWithAuthorization` donations.
+- V2 `donate(address creator, uint256 emoteId)` remains historical approve-then-donate infrastructure.
 - USDC is configured immutably at deployment.
 - `getEmotePrice(uint256 emoteId)` exposes contract-defined USDC prices.
 - Zero creator address reverts with `InvalidCreator`.
+- Zero donor address reverts with `InvalidDonor` in the V3 authorization path.
 - Self-donation reverts with `SelfDonationNotAllowed`.
 - Invalid emote IDs revert with `InvalidEmote`.
-- Successful donations transfer exact USDC directly from viewer to creator and emit `Donation`.
+- Successful V3 donations receive exact USDC into EmotePay and atomically forward the same amount to the creator before emitting `Donation`.
+- The V3 custody invariant is zero persistent custody: USDC balance after a successful donation must equal balance before.
 - No donation history or custody storage is kept.
 
 Relevant files:
@@ -95,10 +98,11 @@ Verified behavior:
 - Hardhat has a `monadTestnet` network.
 - Deployment script refuses unexpected chain IDs.
 - Frontend switches the embedded wallet to Monad Testnet before sending.
-- Frontend reads the V2 contract's configured USDC token and exact reaction price.
-- Frontend checks USDC balance, USDC allowance, and native MON for gas.
-- Frontend requests exact USDC approval when needed, waits for approval receipt, sends no native value to V2, waits for donation receipt, and handles reverted receipts.
-- Envio configuration references deployed V2 contract `0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A`.
+- Frontend reads the V3 contract's configured USDC token and exact reaction price.
+- Frontend checks viewer USDC balance and signs one EIP-3009 `ReceiveWithAuthorization` typed-data payload.
+- The relayer submits the V3 `donateWithAuthorization` transaction and sponsors Monad Testnet network gas in the MVP.
+- The viewer does not need MON for donation gas in the V3 design.
+- Envio configuration references deployed V3 contract `0x3AF2ADcF3e58a80710d406d0917b5f14FD78F9C4` from block `68828412`.
 
 Relevant files:
 
@@ -117,16 +121,20 @@ Validation/tests:
 Important public identifiers:
 
 - Monad Testnet chain ID: `10143`
-- Current V2 EmotePay contract: `0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A`
-- Current V2 deployment transaction: `0xc63c4745602340f4af758a3c1fa45bf5764e0445f93f43648d8e9f9684902ea5`
-- Current V2 Envio start block: `67874925`
-- Current V2 USDC token: `0x534b2f3A21130d7a60830c2Df862319e593943A3`
+- Current V3 EmotePay contract: `0x3AF2ADcF3e58a80710d406d0917b5f14FD78F9C4`
+- Current V3 deployment transaction: `0x46b3c00d01c0111da5384351409b3265f26e10b6ddf199b720d993e1070bfd18`
+- Current V3 Envio start block: `68828412`
+- Current V3 USDC token: `0x534b2f3A21130d7a60830c2Df862319e593943A3`
+- Historical V2 USDC contract: `0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A`
+- Historical V2 deployment transaction: `0xc63c4745602340f4af758a3c1fa45bf5764e0445f93f43648d8e9f9684902ea5`
+- Historical V2 Envio start block: `67874925`
 - Historical V1 MON contract: `0x039dd378eDD477aa7cd200953254a52D44f844A3`
 - Historical V1 start block: `66559947`
 
 Known limitations:
 
-- Frontend contract address remains environment-driven.
+- Frontend V3 contract address remains environment-driven through `NEXT_PUBLIC_EMOTEPAY_V3_CONTRACT_ADDRESS`.
+- Real V3 smoke-test runtime evidence is still pending.
 - Mainnet deployment is not configured or approved.
 
 ## Phase 5 — OBS Realtime Overlay
@@ -136,7 +144,7 @@ Status: COMPLETE
 Verified behavior:
 
 - `/overlay` renders a transparent OBS-compatible page.
-- The overlay watches `Donation` events from the configured V2 contract.
+- The overlay watches `Donation` events from the configured V3 contract.
 - Logs are filtered to the configured creator.
 - Alerts are deduplicated by transaction hash and log index.
 - Unknown emote IDs are ignored.
@@ -167,7 +175,7 @@ Status: COMPLETE
 
 Verified behavior:
 
-- Envio indexes `Donation` events for Monad Testnet V2 contract `0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A`.
+- Envio indexes `Donation` events for Monad Testnet V3 contract `0x3AF2ADcF3e58a80710d406d0917b5f14FD78F9C4`.
 - Indexed entities include `Donation`, `Creator`, `CreatorDonor`, `Donor`, and `Emote`.
 - Aggregates track total donations, total amount, unique donors, donor totals, and emote totals.
 - `/api/envio` validates creator address and queries Envio GraphQL server-side.
@@ -194,8 +202,10 @@ Validation/tests:
 Important public identifiers:
 
 - Monad Testnet chain ID: `10143`
-- Indexed V2 EmotePay contract: `0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A`
-- V2 start block: `67874925`
+- Indexed V3 EmotePay contract: `0x3AF2ADcF3e58a80710d406d0917b5f14FD78F9C4`
+- V3 start block: `68828412`
+- Historical V2 EmotePay contract: `0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A`
+- Historical V2 start block: `67874925`
 - Historical V1 MON contract: `0x039dd378eDD477aa7cd200953254a52D44f844A3`
 - Historical V1 start block: `66559947`
 
