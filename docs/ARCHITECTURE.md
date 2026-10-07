@@ -4,7 +4,7 @@
 
 EmotePay is a Monad Testnet EVM application. The verified flow is:
 
-viewer -> Privy login -> Privy embedded wallet -> exact USDC approval when needed -> `EmotePay.donate` transaction -> creator receives USDC -> `Donation` event -> OBS overlay and Envio analytics.
+viewer -> Privy login -> Privy embedded wallet -> EIP-3009 `ReceiveWithAuthorization` signature -> relayer submits `EmotePay.donateWithAuthorization` -> creator receives USDC -> `Donation` event -> OBS overlay and Envio analytics.
 
 ## Viewer Frontend
 
@@ -35,7 +35,7 @@ Privy embedded Ethereum wallets are configured with:
 
 Payment readiness is modeled in `lib/payment.ts` and consumed by `app/page.tsx`.
 
-Before sending a transaction, the frontend verifies:
+Before requesting a V3 authorization signature, the frontend verifies:
 
 - Privy is ready.
 - The viewer is authenticated.
@@ -45,27 +45,31 @@ Before sending a transaction, the frontend verifies:
 - The EmotePay contract address is configured and valid.
 - The viewer is not donating to themself.
 - The wallet has enough USDC for the donation amount.
-- The wallet has enough MON for approval and donation gas.
-- The wallet has enough USDC allowance, or can approve the exact amount.
 
-The client switches the wallet to Monad Testnet chain ID `10143`, reads the configured USDC token and exact price from the V2 contract, requests exact USDC approval when allowance is insufficient, waits for the approval receipt, encodes `donate(address,uint256)`, sends no native value, waits for the donation receipt, and treats non-success receipts as failures.
+The client switches the wallet to Monad Testnet chain ID `10143`, reads the configured USDC token and exact price from the V3 contract, generates a random salt, asks the embedded wallet to sign one EIP-3009 `ReceiveWithAuthorization` typed-data payload, sends the signed authorization to the relayer, waits for the relayed transaction receipt, and treats non-success receipts as failures. The viewer does not need MON for donation gas in the V3 design; the MVP relayer sponsors network gas.
 
 ## EmotePay Solidity Contract
 
-`contracts/EmotePay.sol` defines one nonpayable function:
+`contracts/EmotePay.sol` defines the V3 relayed payment function:
 
-`donate(address creator, uint256 emoteId)`
+`donateWithAuthorization(address donor, address creator, uint256 emoteId, uint256 validAfter, uint256 validBefore, bytes32 randomSalt, uint8 v, bytes32 r, bytes32 s)`
 
-The current V2 contract behavior is:
+The current V3 contract behavior is:
 
 - Reverts for zero creator address.
+- Reverts for zero donor address in the authorization path.
 - Reverts for self-donation.
 - Reverts for invalid emote IDs.
 - Derives the exact USDC price from `emoteId`.
-- Transfers USDC directly from the viewer to the creator with `SafeERC20.safeTransferFrom`.
+- Recomputes a donation-bound EIP-3009 nonce from chain, contract, token, donor, creator, emote ID, exact price, and random salt.
+- Calls USDC `receiveWithAuthorization` with EmotePay V3 as the signed payee.
+- Atomically forwards the exact USDC amount from EmotePay to the creator.
 - Emits `Donation(donor, creator, amount, emoteId)` only after a successful USDC transfer.
 - Stores no donation history and keeps no custody balance in normal operation.
 - Uses immutable deployment-controlled USDC configuration.
+- Enforces zero persistent custody: the V3 USDC balance after a successful donation must equal the balance before the donation.
+
+The previous V2 `donate(address creator, uint256 emoteId)` approve-then-donate flow remains historical infrastructure.
 
 ## Monad Testnet
 
@@ -85,7 +89,7 @@ The canonical event is:
 
 The generated frontend ABI in `lib/generated/emotePayAbi.ts` matches the contract artifact.
 
-For V2, `amount` is USDC base units with 6 decimals.
+For V3, `amount` is USDC base units with 6 decimals.
 
 ## OBS Realtime Path
 
@@ -97,14 +101,16 @@ Historical events must not be replayed as new live alerts.
 
 The Envio HyperIndex project lives under `indexer/`.
 
-Current V2 configuration:
+Current V3 configuration:
 
 - Package: `envio` `^3.12.1`
 - Chain: Monad Testnet `10143`
-- Contract: `0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A`
-- Start block: `67874925`
+- Contract: `0x3AF2ADcF3e58a80710d406d0917b5f14FD78F9C4`
+- Start block: `68828412`
 - Event: `Donation(address indexed donor, address indexed creator, uint256 amount, uint256 indexed emoteId)`
 - Amount semantics: USDC base units, 6 decimals.
+
+The V3 Envio dataset must not mix historical V1 MON or V2 USDC events.
 
 `indexer/src/handlers/donations.ts` normalizes donor and creator addresses, creates donation IDs from transaction hash and log index, stores donation records, and updates creator, donor, creator-donor, and emote aggregates.
 
@@ -147,11 +153,18 @@ The previous V1 native MON contract remains historical infrastructure:
 - V1 MON contract: `0x039dd378eDD477aa7cd200953254a52D44f844A3`
 - V1 Envio start block: `66559947`
 
-The current V2 USDC deployment is:
+The previous V2 USDC approve-then-donate deployment remains historical infrastructure:
 
 - V2 USDC contract: `0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A`
 - V2 deployment transaction: `0xc63c4745602340f4af758a3c1fa45bf5764e0445f93f43648d8e9f9684902ea5`
 - V2 start block: `67874925`
+- USDC token: `0x534b2f3A21130d7a60830c2Df862319e593943A3`
+
+The current V3 EIP-3009 receive-authorization deployment is:
+
+- V3 contract: `0x3AF2ADcF3e58a80710d406d0917b5f14FD78F9C4`
+- V3 deployment transaction: `0x46b3c00d01c0111da5384351409b3265f26e10b6ddf199b720d993e1070bfd18`
+- V3 start block: `68828412`
 - USDC token: `0x534b2f3A21130d7a60830c2Df862319e593943A3`
 
 ## Future

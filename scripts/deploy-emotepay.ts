@@ -51,7 +51,7 @@ if (chainId !== MONAD_TESTNET_CHAIN_ID) {
 
 const [deployer] = await viem.getWalletClients();
 
-console.log("Deploying EmotePay V2 (USDC) to Monad Testnet");
+console.log("Deploying EmotePay V3 (USDC receive authorization) to Monad Testnet");
 console.log(`Chain id: ${chainId}`);
 console.log(`Deployer: ${deployer.account.address}`);
 console.log(`USDC token: ${MONAD_TESTNET_USDC_ADDRESS}`);
@@ -82,5 +82,5 @@ if (!receipt.contractAddress) {
   throw new Error("EmotePay deployment receipt did not include a contract address");
 }
 
-console.log(`EmotePay V2 deployed at: ${receipt.contractAddress}`);
+console.log(`EmotePay V3 deployed at: ${receipt.contractAddress}`);
 console.log(`Confirmed in block: ${receipt.blockNumber}`);

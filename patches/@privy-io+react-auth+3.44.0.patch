@@ -1,0 +1,26 @@
+diff --git a/node_modules/@privy-io/react-auth/dist/cjs/TransactionDetails-a0usVS0j.js b/node_modules/@privy-io/react-auth/dist/cjs/TransactionDetails-a0usVS0j.js
+index c1b7ee2..787d256 100644
+--- a/node_modules/@privy-io/react-auth/dist/cjs/TransactionDetails-a0usVS0j.js
++++ b/node_modules/@privy-io/react-auth/dist/cjs/TransactionDetails-a0usVS0j.js
+@@ -41,7 +41,7 @@
+   font-size: 14px;
+   line-height: 22.4px;
+   font-weight: 400;
+-`;const f=/*#__PURE__*/o.createContext(void 0),j=/*#__PURE__*/o.createContext(void 0),m=({defaultValue:t,children:i})=>{let[n,r]=o.useState(t||null);/*#__PURE__*/return e.jsx(f.Provider,{value:{activePanel:n,togglePanel:e=>{r(n===e?null:e)}},children:/*#__PURE__*/e.jsx(I,{children:i})})},b=({value:t,children:i})=>{let{activePanel:n,togglePanel:r}=o.useContext(f),l=n===t;/*#__PURE__*/return e.jsx(j.Provider,{value:{onToggle:()=>r(t),value:t},children:/*#__PURE__*/e.jsx(T,{isActive:l?"true":"false","data-open":String(l),children:i})})},k=({children:t})=>{let{activePanel:i}=o.useContext(f),{onToggle:n,value:r}=o.useContext(j),l=i===r;/*#__PURE__*/
++`;const f=/*#__PURE__*/o.createContext(void 0),j=/*#__PURE__*/o.createContext(void 0),m=({defaultValue:t,children:i})=>{let[n,r]=o.useState(t||null);/*#__PURE__*/return e.jsx(f.Provider,{value:{activePanel:n,togglePanel:e=>{r(n===e?null:e)}},children:/*#__PURE__*/e.jsx(I,{children:i})})},b=({value:t,children:i})=>{let{activePanel:n,togglePanel:r}=o.useContext(f),l=n===t;/*#__PURE__*/return e.jsx(j.Provider,{value:{onToggle:()=>r(t),value:t},children:/*#__PURE__*/e.jsx(T,{"data-open":String(l),children:i})})},k=({children:t})=>{let{activePanel:i}=o.useContext(f),{onToggle:n,value:r}=o.useContext(j),l=i===r;/*#__PURE__*/
+ return e.jsxs(e.Fragment,{children:[/*#__PURE__*/e.jsxs(C,{onClick:n,"data-open":String(l),children:[/*#__PURE__*/e.jsx(A,{children:t}),/*#__PURE__*/e.jsx(D,{isactive:l?"true":"false",children:/*#__PURE__*/e.jsx(a.default,{height:"16px",width:"16px",strokeWidth:"2"})})]}),/*#__PURE__*/e.jsx(S,{})]})},w=({children:t})=>{let{activePanel:i}=o.useContext(f),{value:n}=o.useContext(j);/*#__PURE__*/return e.jsx(q,{"data-open":String(i===n),children:/*#__PURE__*/e.jsx(B,{children:t})})},P=({children:t})=>{let{activePanel:i}=o.useContext(f),{value:n}=o.useContext(j);/*#__PURE__*/return e.jsx(B,{children:"function"==typeof t?t({isActive:i===n}):t})};let I=t.styled.div`
+   display: flex;
+   flex-direction: column;
+diff --git a/node_modules/@privy-io/react-auth/dist/esm/TransactionDetails-Cmos84f8.mjs b/node_modules/@privy-io/react-auth/dist/esm/TransactionDetails-Cmos84f8.mjs
+index 41949c6..b8e1415 100644
+--- a/node_modules/@privy-io/react-auth/dist/esm/TransactionDetails-Cmos84f8.mjs
++++ b/node_modules/@privy-io/react-auth/dist/esm/TransactionDetails-Cmos84f8.mjs
+@@ -41,7 +41,7 @@ import{jsxs as e,jsx as i,Fragment as t}from"react/jsx-runtime";import{styled as
+   font-size: 14px;
+   line-height: 22.4px;
+   font-weight: 400;
+-`;const P=/*#__PURE__*/s(void 0),I=/*#__PURE__*/s(void 0),S=({defaultValue:e,children:t})=>{let[r,n]=h(e||null);/*#__PURE__*/return i(P.Provider,{value:{activePanel:r,togglePanel:e=>{n(r===e?null:e)}},children:/*#__PURE__*/i(z,{children:t})})},j=({value:e,children:t})=>{let{activePanel:r,togglePanel:n}=p(P),l=r===e;/*#__PURE__*/return i(I.Provider,{value:{onToggle:()=>n(e),value:e},children:/*#__PURE__*/i(C,{isActive:l?"true":"false","data-open":String(l),children:t})})},B=({children:r})=>{let{activePanel:n}=p(P),{onToggle:l,value:o}=p(I),d=n===o;/*#__PURE__*/
++`;const P=/*#__PURE__*/s(void 0),I=/*#__PURE__*/s(void 0),S=({defaultValue:e,children:t})=>{let[r,n]=h(e||null);/*#__PURE__*/return i(P.Provider,{value:{activePanel:r,togglePanel:e=>{n(r===e?null:e)}},children:/*#__PURE__*/i(z,{children:t})})},j=({value:e,children:t})=>{let{activePanel:r,togglePanel:n}=p(P),l=r===e;/*#__PURE__*/return i(I.Provider,{value:{onToggle:()=>n(e),value:e},children:/*#__PURE__*/i(C,{"data-open":String(l),children:t})})},B=({children:r})=>{let{activePanel:n}=p(P),{onToggle:l,value:o}=p(I),d=n===o;/*#__PURE__*/
+ return e(t,{children:[/*#__PURE__*/e(F,{onClick:l,"data-open":String(d),children:[/*#__PURE__*/i(W,{children:r}),/*#__PURE__*/i(V,{isactive:d?"true":"false",children:/*#__PURE__*/i(c,{height:"16px",width:"16px",strokeWidth:"2"})})]}),/*#__PURE__*/i(Q,{})]})},T=({children:e})=>{let{activePanel:t}=p(P),{value:r}=p(I);/*#__PURE__*/return i(D,{"data-open":String(t===r),children:/*#__PURE__*/i(L,{children:e})})},A=({children:e})=>{let{activePanel:t}=p(P),{value:r}=p(I);/*#__PURE__*/return i(L,{children:"function"==typeof e?e({isActive:t===r}):e})};let z=r.div`
+   display: flex;
+   flex-direction: column;
