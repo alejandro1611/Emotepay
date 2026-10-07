@@ -11,7 +11,7 @@ import {
   Sparkles,
   Tv,
 } from "lucide-react";
-import { usePrivy, useSendTransaction, useWallets } from "@privy-io/react-auth";
+import { usePrivy, useSignTypedData, useWallets } from "@privy-io/react-auth";
 import { AuthButton } from "@/components/AuthButton";
 import { monadTestnet } from "@/lib/chains";
 import { emotePayContract } from "@/lib/contracts";
@@ -19,13 +19,19 @@ import { demoCreator } from "@/lib/creator";
 import { EMOTES, type Emote } from "@/lib/emotes";
 import { getPaymentReadinessState } from "@/lib/payment";
 import {
+  createReceiveAuthorizationValidity,
+  receiveWithAuthorizationTypes,
+  USDC_EIP712_NAME,
+  USDC_EIP712_VERSION,
+} from "@/lib/usdc-authorization";
+import {
   createPublicClient,
-  encodeFunctionData,
   erc20Abi,
   formatUnits,
   http,
   isAddressEqual,
   type Address,
+  type Hex,
 } from "viem";
 import Image from "next/image";
 
@@ -45,7 +51,6 @@ type BalanceCheckState =
       status: "ready";
       usdcAddress: Address;
       contractPrice: bigint;
-      requiresApproval: boolean;
     }
   | { status: "insufficient"; reason: string }
   | { status: "error"; reason: string };
@@ -53,11 +58,20 @@ type BalanceCheckState =
 type TransactionState =
   | { status: "idle" }
   | { status: "awaiting-approval" }
-  | { status: "approving"; hash: `0x${string}` }
   | { status: "submitting" }
   | { status: "confirming"; hash: `0x${string}` }
   | { status: "success"; reference: `0x${string}` }
   | { status: "failure"; reason: string };
+
+type RelayDonationResponse =
+  | {
+      hash: `0x${string}`;
+      amount: string;
+      nonce: Hex;
+    }
+  | {
+      error: string;
+    };
 
 function getEmbeddedWallet(
   wallets: ReturnType<typeof useWallets>["wallets"],
@@ -87,7 +101,7 @@ function getTransactionErrorMessage(error: unknown) {
     lowerMessage.includes("user denied") ||
     lowerMessage.includes("rejected")
   ) {
-    return "You cancelled the wallet approval. No reaction was sent.";
+    return "You cancelled the wallet signature. No reaction was sent.";
   }
 
   if (
@@ -136,6 +150,15 @@ function formatUsdcAmount(amount: bigint) {
   return `${visibleFraction ? `${whole}.${visibleFraction}` : whole} USDC`;
 }
 
+function createRandomSalt(): Hex {
+  const bytes = new Uint8Array(32);
+  window.crypto.getRandomValues(bytes);
+
+  return `0x${Array.from(bytes, (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("")}` as Hex;
+}
+
 async function getPaymentRequirements({
   contractAddress,
   donorAddress,
@@ -145,7 +168,7 @@ async function getPaymentRequirements({
   donorAddress: Address;
   onchainId: number;
 }) {
-  const [usdcAddress, contractPrice, gasPrice] = await Promise.all([
+  const [usdcAddress, contractPrice] = await Promise.all([
     monadPublicClient.readContract({
       address: contractAddress,
       abi: emotePayContract.abi,
@@ -157,70 +180,19 @@ async function getPaymentRequirements({
       functionName: "getEmotePrice",
       args: [BigInt(onchainId)],
     }),
-    monadPublicClient.getGasPrice(),
   ]);
-  const [usdcBalance, allowance, nativeBalance] = await Promise.all([
-    monadPublicClient.readContract({
-      address: usdcAddress,
-      abi: erc20Abi,
-      functionName: "balanceOf",
-      args: [donorAddress],
-    }),
-    monadPublicClient.readContract({
-      address: usdcAddress,
-      abi: erc20Abi,
-      functionName: "allowance",
-      args: [donorAddress, contractAddress],
-    }),
-    monadPublicClient.getBalance({
-      address: donorAddress,
-    }),
-  ]);
-  const requiresApproval = allowance < contractPrice;
-  const approvalGas = requiresApproval
-    ? await monadPublicClient.estimateContractGas({
-        address: usdcAddress,
-        abi: erc20Abi,
-        functionName: "approve",
-        args: [contractAddress, contractPrice],
-        account: donorAddress,
-      })
-    : 0n;
+  const usdcBalance = await monadPublicClient.readContract({
+    address: usdcAddress,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: [donorAddress],
+  });
 
   return {
     usdcAddress,
     contractPrice,
     usdcBalance,
-    nativeBalance,
-    allowance,
-    requiresApproval,
-    requiredApprovalGasBalance: approvalGas * gasPrice,
   };
-}
-
-async function getRequiredDonationGasBalance({
-  contractAddress,
-  creatorAddress,
-  donorAddress,
-  onchainId,
-}: {
-  contractAddress: Address;
-  creatorAddress: Address;
-  donorAddress: Address;
-  onchainId: number;
-}) {
-  const [gas, gasPrice] = await Promise.all([
-    monadPublicClient.estimateContractGas({
-      address: contractAddress,
-      abi: emotePayContract.abi,
-      functionName: "donate",
-      args: [creatorAddress, BigInt(onchainId)],
-      account: donorAddress,
-    }),
-    monadPublicClient.getGasPrice(),
-  ]);
-
-  return gas * gasPrice;
 }
 
 function getExplorerTransactionUrl(hash: `0x${string}`) {
@@ -259,7 +231,7 @@ function KickStreamPlayer({ compact = false }: { compact?: boolean }) {
 export default function Home() {
   const { ready, authenticated } = usePrivy();
   const { ready: walletsReady, wallets } = useWallets();
-  const { sendTransaction } = useSendTransaction();
+  const { signTypedData } = useSignTypedData();
   const [selectedEmote, setSelectedEmote] = useState<Emote>(EMOTES[0]);
   const [message, setMessage] = useState("");
   const [transactionState, setTransactionState] = useState<TransactionState>({
@@ -293,7 +265,6 @@ export default function Home() {
       : null;
   const isActivePayment =
     transactionState.status === "awaiting-approval" ||
-    transactionState.status === "approving" ||
     transactionState.status === "submitting" ||
     transactionState.status === "confirming";
   const canSendReaction =
@@ -305,9 +276,7 @@ export default function Home() {
       ? formatUsdcAmount(effectiveBalanceCheck.contractPrice)
       : selectedEmote.displayAmount;
   const lastHash =
-    transactionState.status === "approving"
-      ? transactionState.hash
-      : transactionState.status === "confirming"
+    transactionState.status === "confirming"
       ? transactionState.hash
       : transactionState.status === "success"
         ? transactionState.reference
@@ -332,16 +301,8 @@ export default function Home() {
     if (transactionState.status === "awaiting-approval") {
       return {
         tone: "active",
-        title: "Awaiting approval",
-        body: "Approve the wallet prompt to continue.",
-      };
-    }
-
-    if (transactionState.status === "approving") {
-      return {
-        tone: "active",
-        title: "Confirming USDC approval",
-        body: "Your exact USDC approval is waiting for confirmation.",
+        title: "Awaiting signature",
+        body: "Sign the exact USDC reaction authorization to continue.",
       };
     }
 
@@ -405,29 +366,19 @@ export default function Home() {
       };
     }
 
-    const requiresUsdcApproval =
-      effectiveBalanceCheck.status === "ready" &&
-      effectiveBalanceCheck.requiresApproval;
-
     return {
       tone: "success",
-      title: requiresUsdcApproval ? "Ready for USDC approval" : "Ready to send",
-      body: requiresUsdcApproval
-        ? `Approve exactly ${selectedAmountLabel}, then send ${selectedEmote.name}.`
-        : `You are sending ${selectedEmote.name} for exactly ${selectedAmountLabel}.`,
+      title: "Ready to authorize",
+      body: `You are sending ${selectedEmote.name} for exactly ${selectedAmountLabel}.`,
     };
   })();
   const sendButtonLabel = (() => {
     if (transactionState.status === "awaiting-approval") {
-      return "Approve in wallet";
+      return "Sign authorization";
     }
 
     if (transactionState.status === "submitting") {
       return "Submitting reaction";
-    }
-
-    if (transactionState.status === "approving") {
-      return "Confirming approval";
     }
 
     if (transactionState.status === "confirming") {
@@ -491,30 +442,17 @@ export default function Home() {
           return;
         }
 
-        if (
-          requirements.nativeBalance <
-          requirements.requiredApprovalGasBalance
-        ) {
-          setBalanceCheck({
-            status: "insufficient",
-            reason:
-              "Your embedded wallet needs more Monad Testnet MON for USDC approval gas.",
-          });
-          return;
-        }
-
         setBalanceCheck({
           status: "ready",
           usdcAddress: requirements.usdcAddress,
           contractPrice: requirements.contractPrice,
-          requiresApproval: requirements.requiresApproval,
         });
       } catch {
         if (!isCancelled) {
           setBalanceCheck({
             status: "error",
             reason:
-              "We could not check your USDC balance or approval. Please try again shortly.",
+              "We could not check your USDC balance or reaction price. Please try again shortly.",
           });
         }
       }
@@ -596,106 +534,82 @@ export default function Home() {
         return;
       }
 
-      if (
-        requirements.nativeBalance <
-        requirements.requiredApprovalGasBalance
-      ) {
-        const reason =
-          "Your embedded wallet needs more Monad Testnet MON for USDC approval gas.";
-        setBalanceCheck({
-          status: "insufficient",
-          reason,
-        });
-        setTransactionState({
-          status: "failure",
-          reason,
-        });
-        return;
-      }
-
-      if (requirements.allowance < requirements.contractPrice) {
-        const approvalData = encodeFunctionData({
-          abi: erc20Abi,
-          functionName: "approve",
-          args: [emotePayContract.address, requirements.contractPrice],
-        });
-        const { hash: approvalHash } = await sendTransaction(
-          {
-            to: requirements.usdcAddress,
-            data: approvalData,
-            chainId: monadTestnet.id,
-          },
-          {
-            address: embeddedWallet.address,
-          },
-        );
-
-        setTransactionState({ status: "approving", hash: approvalHash });
-
-        const approvalReceipt =
-          await monadPublicClient.waitForTransactionReceipt({
-            hash: approvalHash,
-          });
-
-        if (approvalReceipt.status !== "success") {
-          setTransactionState({
-            status: "failure",
-            reason:
-              "Monad did not confirm the USDC approval, so the reaction was not sent.",
-          });
-          return;
-        }
-
-        setTransactionState({ status: "awaiting-approval" });
-      }
-
-      const requiredDonationGasBalance = await getRequiredDonationGasBalance({
-        contractAddress: emotePayContract.address,
-        creatorAddress: demoCreator.walletAddress,
-        donorAddress,
-        onchainId: selectedEmote.onchainId,
-      });
-      const nativeBalance = await monadPublicClient.getBalance({
-        address: donorAddress,
-      });
-
-      if (nativeBalance < requiredDonationGasBalance) {
-        const reason =
-          "Your embedded wallet needs more Monad Testnet MON for donation gas.";
-        setBalanceCheck({
-          status: "insufficient",
-          reason,
-        });
-        setTransactionState({
-          status: "failure",
-          reason,
-        });
-        return;
-      }
-
-      const data = encodeFunctionData({
+      const randomSalt = createRandomSalt();
+      const { validAfter, validBefore } = createReceiveAuthorizationValidity(
+        Math.floor(Date.now() / 1000),
+      );
+      const nonce = await monadPublicClient.readContract({
+        address: emotePayContract.address,
         abi: emotePayContract.abi,
-        functionName: "donate",
-        args: [demoCreator.walletAddress, BigInt(selectedEmote.onchainId)],
+        functionName: "computeDonationAuthorizationNonce",
+        args: [
+          donorAddress,
+          demoCreator.walletAddress,
+          BigInt(selectedEmote.onchainId),
+          requirements.contractPrice,
+          randomSalt,
+        ],
       });
-
-      setTransactionState({ status: "submitting" });
-
-      const { hash } = await sendTransaction(
+      const { signature } = await signTypedData(
         {
-          to: emotePayContract.address,
-          data,
-          chainId: monadTestnet.id,
+          domain: {
+            name: USDC_EIP712_NAME,
+            version: USDC_EIP712_VERSION,
+            chainId: monadTestnet.id,
+            verifyingContract: requirements.usdcAddress,
+          },
+          primaryType: "ReceiveWithAuthorization",
+          types: receiveWithAuthorizationTypes,
+          message: {
+            from: donorAddress,
+            to: emotePayContract.address,
+            value: requirements.contractPrice,
+            validAfter,
+            validBefore,
+            nonce,
+          },
         },
         {
           address: embeddedWallet.address,
         },
       );
 
-      setTransactionState({ status: "confirming", hash });
+      setTransactionState({ status: "submitting" });
+
+      const relayResponse = await fetch("/api/relay-donation", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          contractAddress: emotePayContract.address,
+          usdcAddress: requirements.usdcAddress,
+          donor: donorAddress,
+          creator: demoCreator.walletAddress,
+          emoteId: selectedEmote.onchainId.toString(),
+          validAfter: validAfter.toString(),
+          validBefore: validBefore.toString(),
+          randomSalt,
+          signature,
+        }),
+      });
+      const relayResult = (await relayResponse.json()) as RelayDonationResponse;
+
+      if (!relayResponse.ok || "error" in relayResult) {
+        setTransactionState({
+          status: "failure",
+          reason:
+            "error" in relayResult
+              ? relayResult.error
+              : "The relayer could not submit this reaction.",
+        });
+        return;
+      }
+
+      setTransactionState({ status: "confirming", hash: relayResult.hash });
 
       const receipt = await monadPublicClient.waitForTransactionReceipt({
-        hash,
+        hash: relayResult.hash,
       });
 
       if (receipt.status !== "success") {
@@ -706,7 +620,7 @@ export default function Home() {
         return;
       }
 
-      setTransactionState({ status: "success", reference: hash });
+      setTransactionState({ status: "success", reference: relayResult.hash });
       setShowSuccessBanner(true);
       setMessage("");
     } catch (error) {
@@ -788,7 +702,7 @@ export default function Home() {
               </h1>
               <p className="text-sm text-slate-400 mt-1">
                 Choose a reaction that carries value. You will see the exact USDC
-                amount before approval.
+                amount before signing.
               </p>
             </div>
 

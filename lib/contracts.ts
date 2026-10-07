@@ -3,6 +3,7 @@ import { emotePayAbi } from "@/lib/generated/emotePayAbi";
 
 export const EMOTEPAY_V2_CONTRACT_ADDRESS =
   "0x1dce4f6c02834907fb06B097bc62FC83e13ccF0A" as const;
+export const EMOTEPAY_V3_CONTRACT_ENV = "NEXT_PUBLIC_EMOTEPAY_V3_CONTRACT_ADDRESS";
 
 export type ContractConfigurationStatus =
   | "ready"
@@ -19,9 +20,7 @@ function getContractAddress(): Pick<
   EmotePayContractConfig,
   "address" | "configurationStatus"
 > {
-  const configuredAddress =
-    process.env.NEXT_PUBLIC_EMOTEPAY_CONTRACT_ADDRESS?.trim() ||
-    EMOTEPAY_V2_CONTRACT_ADDRESS;
+  const configuredAddress = process.env.NEXT_PUBLIC_EMOTEPAY_V3_CONTRACT_ADDRESS?.trim();
 
   if (!configuredAddress) {
     return {

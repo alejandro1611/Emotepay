@@ -4,7 +4,7 @@ export const emotePayAbi = [
   {
     "inputs": [
       {
-        "internalType": "contract IERC20",
+        "internalType": "contract IUSDC",
         "name": "usdcToken",
         "type": "address"
       }
@@ -19,12 +19,22 @@ export const emotePayAbi = [
   },
   {
     "inputs": [],
+    "name": "InvalidDonor",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "InvalidEmote",
     "type": "error"
   },
   {
     "inputs": [],
     "name": "InvalidPaymentToken",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "PersistentCustodyInvariant",
     "type": "error"
   },
   {
@@ -95,6 +105,19 @@ export const emotePayAbi = [
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "DONATION_AUTHORIZATION_NONCE_DOMAIN",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
       }
     ],
     "stateMutability": "view",
@@ -182,6 +205,45 @@ export const emotePayAbi = [
     "inputs": [
       {
         "internalType": "address",
+        "name": "donor",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "creator",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "emoteId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "exactPrice",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "randomSalt",
+        "type": "bytes32"
+      }
+    ],
+    "name": "computeDonationAuthorizationNonce",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
         "name": "creator",
         "type": "address"
       },
@@ -192,6 +254,59 @@ export const emotePayAbi = [
       }
     ],
     "name": "donate",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "donor",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "creator",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "emoteId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "validAfter",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "validBefore",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "randomSalt",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint8",
+        "name": "v",
+        "type": "uint8"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "r",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "s",
+        "type": "bytes32"
+      }
+    ],
+    "name": "donateWithAuthorization",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -220,7 +335,7 @@ export const emotePayAbi = [
     "name": "usdc",
     "outputs": [
       {
-        "internalType": "contract IERC20",
+        "internalType": "contract IUSDC",
         "name": "",
         "type": "address"
       }
