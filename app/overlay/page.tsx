@@ -17,6 +17,10 @@ import { EMOTES, type Emote } from "@/lib/emotes";
 import { monadTestnet } from "@/lib/chains";
 
 const ALERT_DURATION_MS = 4400;
+const DONATION_POLL_INTERVAL_MS = 1_500;
+const MAX_GET_LOGS_BLOCK_RANGE = 100n;
+const MAX_GET_LOGS_BLOCK_SPAN = MAX_GET_LOGS_BLOCK_RANGE - 1n;
+const WATCHER_ERROR_LOG_INTERVAL_MS = 30_000;
 const emotesByOnchainId = new Map<number, Emote>(
   EMOTES.map((emote) => [emote.onchainId, emote]),
 );
@@ -51,6 +55,18 @@ type DonationLogShape = {
   blockNumber?: unknown;
   logIndex?: unknown;
   transactionHash?: unknown;
+};
+
+type ValidDonationLog = {
+  args: {
+    donor: Address;
+    creator: Address;
+    amount: bigint;
+    emoteId: bigint;
+  };
+  blockNumber: bigint;
+  logIndex: number;
+  transactionHash: Hash;
 };
 
 const monadPublicClient = createPublicClient({
@@ -102,17 +118,7 @@ function overlayReducer(
 function isValidDonationLog(
   log: unknown,
   creatorAddress: Address,
-): log is {
-  args: {
-    donor: Address;
-    creator: Address;
-    amount: bigint;
-    emoteId: bigint;
-  };
-  blockNumber: bigint;
-  logIndex: number;
-  transactionHash: Hash;
-} {
+): log is ValidDonationLog {
   const { args, blockNumber, logIndex, transactionHash } =
     log as DonationLogShape;
   const donor = args?.donor;
@@ -134,73 +140,176 @@ function isValidDonationLog(
   );
 }
 
+function getDonationId(log: { transactionHash: Hash; logIndex: number }) {
+  return `${log.transactionHash}-${log.logIndex}`;
+}
+
+function sortDonationLogs(logs: ValidDonationLog[]) {
+  return [...logs].sort((a, b) => {
+    if (a.blockNumber === b.blockNumber) {
+      return a.logIndex - b.logIndex;
+    }
+
+    return a.blockNumber < b.blockNumber ? -1 : 1;
+  });
+}
+
+function shouldTreatAsTransientRpcError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    error.message.includes("fetch failed") ||
+    error.message.includes("HTTP request failed") ||
+    error.message.includes("RPC Request failed") ||
+    error.message.includes("timed out") ||
+    error.message.includes("eth_getLogs is limited")
+  );
+}
+
 export default function OverlayPage() {
   const [{ activeDonation }, dispatch] = useReducer(overlayReducer, {
     activeDonation: null,
     queue: [],
   });
   const seenDonationIds = useRef(new Set<string>());
+  const lastWatcherErrorLogAt = useRef(0);
   const creatorAddress = demoCreator.walletAddress;
   const contractAddress = emotePayContract.address;
-  const isConfigured =
-    Boolean(creatorAddress) && Boolean(contractAddress);
+  const isConfigured = Boolean(creatorAddress) && Boolean(contractAddress);
 
   useEffect(() => {
+    let isMounted = true;
+    let timeoutId: number | null = null;
+    let lastProcessedBlock: bigint | null = null;
+
     if (!creatorAddress || !contractAddress) {
       return;
     }
 
-    const unwatch = monadPublicClient.watchContractEvent({
-      address: contractAddress,
-      abi: emotePayContract.abi,
-      eventName: "Donation",
-      onLogs: (logs) => {
-        const donations: OverlayDonation[] = [];
+    const processLogs = (logs: unknown[]) => {
+      const validLogs = sortDonationLogs(
+        logs.filter((log) => isValidDonationLog(log, creatorAddress)),
+      );
+      const donations: OverlayDonation[] = [];
 
-        for (const log of logs) {
-          if (!isValidDonationLog(log, creatorAddress)) {
-            continue;
-          }
+      for (const log of validLogs) {
+        const id = getDonationId(log);
 
-          const id = `${log.transactionHash}-${log.logIndex}`;
+        if (seenDonationIds.current.has(id)) {
+          continue;
+        }
 
-          if (seenDonationIds.current.has(id)) {
-            continue;
-          }
+        seenDonationIds.current.add(id);
 
-          seenDonationIds.current.add(id);
+        const emote = emotesByOnchainId.get(Number(log.args.emoteId));
 
-          const emote = emotesByOnchainId.get(Number(log.args.emoteId));
+        if (!emote) {
+          continue;
+        }
 
-          if (!emote) {
-            continue;
-          }
+        donations.push({
+          id,
+          donor: log.args.donor,
+          creator: log.args.creator,
+          amount: log.args.amount,
+          emoteId: log.args.emoteId,
+          emote,
+          transactionHash: log.transactionHash,
+          blockNumber: log.blockNumber,
+        });
+      }
 
-          donations.push({
-            id,
-            donor: log.args.donor,
-            creator: log.args.creator,
-            amount: log.args.amount,
-            emoteId: log.args.emoteId,
-            emote,
-            transactionHash: log.transactionHash,
-            blockNumber: log.blockNumber,
+      if (donations.length > 0) {
+        dispatch({ type: "enqueue", donations });
+      }
+    };
+
+    const logWatcherError = (error: unknown) => {
+      const now = Date.now();
+
+      if (now - lastWatcherErrorLogAt.current < WATCHER_ERROR_LOG_INTERVAL_MS) {
+        return;
+      }
+
+      lastWatcherErrorLogAt.current = now;
+
+      if (shouldTreatAsTransientRpcError(error)) {
+        console.warn("Donation overlay watcher transient RPC failure", error);
+        return;
+      }
+
+      console.error("Donation overlay watcher failed", error);
+    };
+
+    const pollDonationLogs = async () => {
+      try {
+        const latestBlock = await monadPublicClient.getBlockNumber();
+
+        if (lastProcessedBlock === null) {
+          lastProcessedBlock = latestBlock;
+          return;
+        }
+
+        if (latestBlock <= lastProcessedBlock) {
+          return;
+        }
+
+        let fromBlock = lastProcessedBlock + 1n;
+
+        while (fromBlock <= latestBlock) {
+          const toBlock =
+            fromBlock + MAX_GET_LOGS_BLOCK_SPAN > latestBlock
+              ? latestBlock
+              : fromBlock + MAX_GET_LOGS_BLOCK_SPAN;
+          const logs = await monadPublicClient.getContractEvents({
+            address: contractAddress,
+            abi: emotePayContract.abi,
+            eventName: "Donation",
+            args: {
+              creator: creatorAddress,
+            },
+            fromBlock,
+            toBlock,
+            strict: true,
           });
-        }
 
-        if (donations.length > 0) {
-          dispatch({ type: "enqueue", donations });
+          if (!isMounted) {
+            return;
+          }
+
+          processLogs(logs);
+          lastProcessedBlock = toBlock;
+          fromBlock = toBlock + 1n;
         }
-      },
-      onError: (error) => {
-        console.error("Donation overlay watcher failed", error);
-      },
-      pollingInterval: 1_500,
-      strict: true,
+      } catch (error) {
+        logWatcherError(error);
+      }
+    };
+
+    const scheduleNextPoll = () => {
+      timeoutId = window.setTimeout(async () => {
+        await pollDonationLogs();
+
+        if (isMounted) {
+          scheduleNextPoll();
+        }
+      }, DONATION_POLL_INTERVAL_MS);
+    };
+
+    void pollDonationLogs().then(() => {
+      if (isMounted) {
+        scheduleNextPoll();
+      }
     });
 
     return () => {
-      unwatch();
+      isMounted = false;
+
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
     };
   }, [contractAddress, creatorAddress]);
 

@@ -8,10 +8,11 @@ import {
   Info,
   Loader2,
   Radio,
-  Tv,
+  Wallet,
 } from "lucide-react";
 import { usePrivy, useSignTypedData, useWallets } from "@privy-io/react-auth";
 import { AuthButton } from "@/components/AuthButton";
+import { FundWalletModal } from "@/components/FundWalletModal";
 import {
   ReactionConfirmationModal,
   type ConfirmationPhase,
@@ -49,6 +50,11 @@ const kickChannel = process.env.NEXT_PUBLIC_KICK_CHANNEL?.trim().replace(/^@/, "
 const kickPlayerUrl = kickChannel
   ? `https://player.kick.com/${encodeURIComponent(kickChannel)}?autoplay=true&muted=true`
   : null;
+const kickChannelUrl = kickChannel
+  ? `https://kick.com/${encodeURIComponent(kickChannel)}`
+  : null;
+const kickStreamMode =
+  process.env.NEXT_PUBLIC_KICK_STREAM_MODE === "live" ? "live" : "offline";
 // El ancho del video se topa contra el alto de la ventana para que las
 // tarjetas de reacción entren sin scroll. 19.5rem es el alto fijo de todo lo
 // demás (header, paddings y tarjetas) y los 3rem compensan el padding
@@ -221,30 +227,90 @@ function getExplorerTransactionUrl(hash: `0x${string}`) {
 }
 
 function KickStreamPlayer() {
+  const showKickIframe = kickStreamMode === "live" && Boolean(kickPlayerUrl);
+
   return (
     <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl">
-      {kickPlayerUrl ? (
-        <iframe
-          src={kickPlayerUrl}
-          title="Kick livestream"
-          allow="autoplay; fullscreen; picture-in-picture"
-          allowFullScreen
-          // Abajo de unos 315px de ventana el reproductor de Kick no entra en
-          // su propio documento y saca su barra de scroll. Es cross-origin, no
-          // podemos tocar su CSS: esto se lo pide al navegador desde afuera.
-          scrolling="no"
-          className="absolute inset-0 h-full w-full"
-        />
-      ) : (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950 text-slate-500">
-          <Tv className="w-14 h-14 sm:w-16 sm:h-16 stroke-[1] mb-2 opacity-50" />
-          <p className="text-sm">Kick stream not configured</p>
-        </div>
+      {!showKickIframe && (
+        <>
+          <div className="absolute inset-0 z-0 bg-slate-950">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_28%,rgba(168,85,247,0.22),transparent_42%),radial-gradient(circle_at_18%_85%,rgba(16,185,129,0.12),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.25),rgba(2,6,23,0.96))]" />
+
+            <div className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center">
+              <div className="relative">
+                <div className="absolute inset-0 rounded-full bg-purple-500/25 blur-2xl" />
+                <div className="relative h-16 w-16 sm:h-20 sm:w-20">
+                  <Image
+                    src="/emotepay-logo.png"
+                    alt=""
+                    fill
+                    className="object-contain opacity-95"
+                  />
+                </div>
+              </div>
+              <p className="mt-5 text-2xl font-black text-white sm:text-3xl">
+                Live Reaction Preview
+              </p>
+              <p className="mt-2 max-w-sm text-sm font-medium text-slate-300 sm:text-base">
+                Send a reaction to see it appear here.
+              </p>
+              <p className="mt-1 text-xs font-semibold uppercase tracking-wider text-purple-200/80">
+                Real USDC payments on Monad Testnet
+              </p>
+              <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-bold text-emerald-200">
+                <span className="h-2 w-2 rounded-full bg-emerald-300" />
+                Waiting for reactions
+              </div>
+            </div>
+          </div>
+          <iframe
+            src="/overlay"
+            title="EmotePay live reaction overlay"
+            scrolling="no"
+            className="pointer-events-none absolute inset-0 z-10 h-full w-full border-0 bg-transparent"
+          />
+        </>
       )}
+
+      {showKickIframe && kickPlayerUrl ? (
+        <>
+          <iframe
+            src={kickPlayerUrl}
+            title="Kick livestream"
+            allow="autoplay; fullscreen; picture-in-picture"
+            allowFullScreen
+            // Abajo de unos 315px de ventana el reproductor de Kick no entra en
+            // su propio documento y saca su barra de scroll. Es cross-origin, no
+            // podemos tocar su CSS: esto se lo pide al navegador desde afuera.
+            scrolling="no"
+            className="absolute inset-0 h-full w-full"
+          />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-3 bg-gradient-to-t from-slate-950/90 via-slate-950/30 to-transparent p-3">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-slate-200">
+                Stream preview
+              </p>
+              <p className="hidden text-[11px] text-slate-400 sm:block">
+                Live mode is using the Kick player.
+              </p>
+            </div>
+            {kickChannelUrl && (
+              <a
+                href={kickChannelUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="pointer-events-auto inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-700 bg-slate-950/85 px-3 py-1.5 text-xs font-semibold text-slate-200 transition-colors hover:border-purple-400 hover:text-white"
+              >
+                Open Kick
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            )}
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
-
 export default function Home() {
   const { ready, authenticated } = usePrivy();
   const { ready: walletsReady, wallets } = useWallets();
@@ -260,6 +326,7 @@ export default function Home() {
   const [confirmation, setConfirmation] = useState<ReactionConfirmation | null>(
     null,
   );
+  const [isFundWalletOpen, setIsFundWalletOpen] = useState(false);
 
   const embeddedWallet = useMemo(() => getEmbeddedWallet(wallets), [wallets]);
   const embeddedWalletAddress = embeddedWallet?.address as Address | undefined;
@@ -277,6 +344,7 @@ export default function Home() {
   });
   const effectiveBalanceCheck: BalanceCheckState =
     readinessState.status === "ready" ? balanceCheck : { status: "idle" };
+  const isLiveStreamMode = kickStreamMode === "live";
   const balanceCheckMessage =
     effectiveBalanceCheck.status === "insufficient" ||
     effectiveBalanceCheck.status === "error"
@@ -356,7 +424,7 @@ export default function Home() {
     if (effectiveBalanceCheck.status === "insufficient") {
       return {
         tone: "error",
-        title: "Not enough funds",
+        title: "Not enough test USDC",
         body: effectiveBalanceCheck.reason,
       };
     }
@@ -403,9 +471,7 @@ export default function Home() {
         if (requirements.usdcBalance < requirements.contractPrice) {
           setBalanceCheck({
             status: "insufficient",
-            reason: `Add at least ${formatUsdcAmount(
-              requirements.contractPrice,
-            )}.`,
+            reason: "Fund your embedded wallet to send this reaction.",
           });
           return;
         }
@@ -710,6 +776,18 @@ export default function Home() {
               <span className="w-2 h-2 rounded-full bg-emerald-400" />
               Testnet
             </div>
+            {authenticated && (
+              <button
+                type="button"
+                onClick={() => setIsFundWalletOpen(true)}
+                disabled={!embeddedWalletAddress}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-200 transition-colors hover:border-purple-500/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Wallet className="h-4 w-4 text-purple-300" />
+                <span className="hidden sm:inline">Fund wallet</span>
+                <span className="sm:hidden">Fund</span>
+              </button>
+            )}
             <AuthButton />
           </div>
         </div>
@@ -722,7 +800,7 @@ export default function Home() {
         {/* Abajo de 640 el video es demasiado chico para sostener overlays:
             los chips bajan al flujo, arriba y abajo del reproductor. */}
         <div className="relative">
-          <div className="mb-2 flex items-center justify-between gap-2 sm:absolute sm:inset-x-3 sm:top-3 sm:z-10 sm:mb-0">
+          <div className="mb-2 flex items-center justify-between gap-2 sm:absolute sm:inset-x-3 sm:top-3 sm:z-30 sm:mb-0">
             <div className="flex min-w-0 items-center gap-2 rounded-full border border-slate-700 bg-slate-950/80 py-1.5 pl-1.5 pr-3.5 backdrop-blur-sm">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-amber-400 to-purple-500 text-xs font-black text-slate-950">
                 {demoCreator.displayName.slice(0, 1)}
@@ -733,10 +811,22 @@ export default function Home() {
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
-              <span className="flex items-center gap-2 rounded-full border border-emerald-700 bg-slate-950/80 px-3 py-1.5 text-xs font-semibold text-emerald-300 backdrop-blur-sm">
-                <Radio className="h-3.5 w-3.5 shrink-0" />
-                <span className="hidden sm:inline">Live on Kick</span>
-                <span className="sm:hidden">Live</span>
+              <span
+                className={`flex items-center gap-2 rounded-full border bg-slate-950/80 px-3 py-1.5 text-xs font-semibold backdrop-blur-sm ${
+                  isLiveStreamMode
+                    ? "border-emerald-700 text-emerald-300"
+                    : "border-purple-400/30 text-purple-100"
+                }`}
+              >
+                {isLiveStreamMode && (
+                  <Radio className="h-3.5 w-3.5 shrink-0" />
+                )}
+                <span className="hidden sm:inline">
+                  {isLiveStreamMode ? "Live on Kick" : "Reaction Demo"}
+                </span>
+                <span className="sm:hidden">
+                  {isLiveStreamMode ? "Live" : "Demo"}
+                </span>
               </span>
               <details className="relative">
                 <summary
@@ -827,6 +917,16 @@ export default function Home() {
                 </span>{" "}
                 {paymentNotice.body}
               </p>
+              {effectiveBalanceCheck.status === "insufficient" && (
+                <button
+                  type="button"
+                  onClick={() => setIsFundWalletOpen(true)}
+                  disabled={!embeddedWalletAddress}
+                  className="ml-auto shrink-0 rounded-lg border border-amber-300/30 bg-amber-300/10 px-2.5 py-1.5 text-xs font-bold text-amber-100 transition-colors hover:bg-amber-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Fund wallet
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -905,6 +1005,14 @@ export default function Home() {
           notice={confirmation.notice}
           onConfirm={handleConfirmReaction}
           onDismiss={() => setConfirmation(null)}
+        />
+      )}
+
+      {isFundWalletOpen && embeddedWalletAddress && (
+        <FundWalletModal
+          walletAddress={embeddedWalletAddress}
+          networkName={monadTestnet.name}
+          onDismiss={() => setIsFundWalletOpen(false)}
         />
       )}
     </main>
