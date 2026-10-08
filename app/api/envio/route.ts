@@ -2,13 +2,15 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { NextResponse } from "next/server";
-import { isAddress } from "viem";
+import { isAddress, isAddressEqual } from "viem";
 
 import type {
   EnvioCreatorStats,
   EnvioDonation,
   CreatorHistory,
 } from "@/lib/envio";
+import { requireCreatorAuthorization } from "@/lib/creator-authorization";
+import { demoCreator } from "@/lib/creator";
 
 export const dynamic = "force-dynamic";
 
@@ -90,8 +92,30 @@ async function fetchEnvioGraphql<TData>({
 }
 
 export async function POST(request: Request) {
-  const envioConfig = getEnvioServerConfig();
+  const authorization = await requireCreatorAuthorization(request);
 
+  if (authorization.status === "unauthenticated") {
+    return NextResponse.json(
+      { error: authorization.reason },
+      { status: 401 },
+    );
+  }
+
+  if (authorization.status === "forbidden") {
+    return NextResponse.json(
+      { error: authorization.reason },
+      { status: 403 },
+    );
+  }
+
+  if (authorization.status === "misconfigured") {
+    return NextResponse.json(
+      { error: authorization.reason },
+      { status: 503 },
+    );
+  }
+
+  const envioConfig = getEnvioServerConfig();
   if (!envioConfig) {
     return NextResponse.json(
       { error: "Envio GraphQL server configuration is missing." },
@@ -112,6 +136,16 @@ export async function POST(request: Request) {
     );
   }
 
+  if (
+    !demoCreator.walletAddress ||
+    !isAddressEqual(creatorAddress, demoCreator.walletAddress)
+  ) {
+    return NextResponse.json(
+      { error: "Creator address is not authorized." },
+      { status: 403 },
+    );
+  }
+
   try {
     const [creatorStatsQuery, recentDonationsQuery] = await Promise.all([
       readGraphqlQuery("creator-stats.graphql"),
@@ -123,12 +157,12 @@ export async function POST(request: Request) {
       fetchEnvioGraphql<CreatorStatsData>({
         ...envioConfig,
         query: creatorStatsQuery,
-        variables: { creator: creatorAddress },
+        variables: { creator: demoCreator.walletAddress.toLowerCase() },
       }),
       fetchEnvioGraphql<RecentDonationsData>({
         ...envioConfig,
         query: recentDonationsQuery,
-        variables: { creator: creatorAddress, limit },
+        variables: { creator: demoCreator.walletAddress.toLowerCase(), limit },
       }),
     ]);
 
