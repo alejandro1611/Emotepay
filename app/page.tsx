@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -11,6 +11,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { usePrivy, useSignTypedData, useWallets } from "@privy-io/react-auth";
+import { AuthenticatedRoute } from "@/components/AuthenticatedRoute";
 import { AuthButton } from "@/components/AuthButton";
 import { FundWalletModal } from "@/components/FundWalletModal";
 import {
@@ -61,6 +62,9 @@ const kickStreamMode =
 // horizontal, que el max-width incluye por el box-sizing de Tailwind.
 const STREAM_COLUMN_MAX_WIDTH =
   "min(896px, calc((100vh - 19.5rem) * 16 / 9 + 3rem))";
+const VIEWER_SUCCESS_SOUND_SRC = "/sounds/payment-success.mp3";
+const VIEWER_SUCCESS_SOUND_VOLUME = 0.35;
+const AUDIO_WARNING_LOG_INTERVAL_MS = 30_000;
 
 type BalanceCheckState =
   | { status: "idle" }
@@ -117,6 +121,12 @@ function shortenAddress(address?: string | null) {
   }
 
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
+async function playSound(src: string, volume: number) {
+  const audio = new Audio(src);
+  audio.volume = volume;
+  await audio.play();
 }
 
 function getTransactionErrorMessage(error: unknown) {
@@ -264,7 +274,7 @@ function KickStreamPlayer() {
             </div>
           </div>
           <iframe
-            src="/overlay"
+            src="/overlay?audio=0"
             title="EmotePay live reaction overlay"
             scrolling="no"
             className="pointer-events-none absolute inset-0 z-10 h-full w-full border-0 bg-transparent"
@@ -311,7 +321,7 @@ function KickStreamPlayer() {
     </div>
   );
 }
-export default function Home() {
+function HomeContent() {
   const { ready, authenticated } = usePrivy();
   const { ready: walletsReady, wallets } = useWallets();
   const { signTypedData } = useSignTypedData();
@@ -327,6 +337,8 @@ export default function Home() {
     null,
   );
   const [isFundWalletOpen, setIsFundWalletOpen] = useState(false);
+  const successSoundReference = useRef<`0x${string}` | null>(null);
+  const lastAudioWarningLogAt = useRef(0);
 
   const embeddedWallet = useMemo(() => getEmbeddedWallet(wallets), [wallets]);
   const embeddedWalletAddress = embeddedWallet?.address as Address | undefined;
@@ -740,6 +752,25 @@ export default function Home() {
       setConfirmation((current) =>
         current ? { ...current, phase: "delivered" } : current,
       );
+      if (successSoundReference.current !== relayResult.hash) {
+        successSoundReference.current = relayResult.hash;
+        void playSound(
+          VIEWER_SUCCESS_SOUND_SRC,
+          VIEWER_SUCCESS_SOUND_VOLUME,
+        ).catch((error) => {
+          const now = Date.now();
+
+          if (
+            now - lastAudioWarningLogAt.current <
+            AUDIO_WARNING_LOG_INTERVAL_MS
+          ) {
+            return;
+          }
+
+          lastAudioWarningLogAt.current = now;
+          console.warn("Payment success audio playback failed", error);
+        });
+      }
       setShowSuccessBanner(true);
     } catch (error) {
       const reason = getTransactionErrorMessage(error);
@@ -1016,5 +1047,13 @@ export default function Home() {
         />
       )}
     </main>
+  );
+}
+
+export default function Home() {
+  return (
+    <AuthenticatedRoute>
+      <HomeContent />
+    </AuthenticatedRoute>
   );
 }

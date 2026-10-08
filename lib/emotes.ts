@@ -11,6 +11,7 @@ export type Emote = {
    * va a estilos en línea porque el valor es dinámico.
    */
   accent: string;
+  soundSrc?: string;
 };
 
 export const EMOTES = [
@@ -22,6 +23,7 @@ export const EMOTES = [
     displayAmount: "0.10 USDC",
     amountUsdcBaseUnits: 100_000n,
     accent: "#f97316",
+    soundSrc: "/sounds/hype-fire.mp3",
   },
   {
     id: "rocket",
@@ -31,6 +33,7 @@ export const EMOTES = [
     displayAmount: "0.50 USDC",
     amountUsdcBaseUnits: 500_000n,
     accent: "#a855f7",
+    soundSrc: "/sounds/to-the-moon.mp3",
   },
   {
     id: "crown",
@@ -40,6 +43,7 @@ export const EMOTES = [
     displayAmount: "1.00 USDC",
     amountUsdcBaseUnits: 1_000_000n,
     accent: "#fbbf24",
+    soundSrc: "/sounds/king-queen.mp3",
   },
   {
     id: "gem",
@@ -49,5 +53,6 @@ export const EMOTES = [
     displayAmount: "2.50 USDC",
     amountUsdcBaseUnits: 2_500_000n,
     accent: "#22d3ee",
+    soundSrc: "/sounds/diamond-hands.mp3",
   },
 ] as const satisfies readonly Emote[];

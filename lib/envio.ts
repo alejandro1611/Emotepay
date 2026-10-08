@@ -35,16 +35,19 @@ export function getCreatorHistoryAddress() {
 export async function fetchCreatorHistory({
   apiUrl,
   creatorAddress,
+  accessToken,
   limit = 20,
 }: {
   apiUrl: string;
   creatorAddress: string;
+  accessToken: string;
   limit?: number;
 }): Promise<CreatorHistory> {
   const response = await fetch(apiUrl, {
     method: "POST",
     headers: {
       "content-type": "application/json",
+      authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({
       creatorAddress,

@@ -21,6 +21,8 @@ const DONATION_POLL_INTERVAL_MS = 1_500;
 const MAX_GET_LOGS_BLOCK_RANGE = 100n;
 const MAX_GET_LOGS_BLOCK_SPAN = MAX_GET_LOGS_BLOCK_RANGE - 1n;
 const WATCHER_ERROR_LOG_INTERVAL_MS = 30_000;
+const AUDIO_WARNING_LOG_INTERVAL_MS = 30_000;
+const OVERLAY_AUDIO_VOLUME = 0.45;
 const emotesByOnchainId = new Map<number, Emote>(
   EMOTES.map((emote) => [emote.onchainId, emote]),
 );
@@ -168,6 +170,20 @@ function shouldTreatAsTransientRpcError(error: unknown) {
   );
 }
 
+function getOverlayAudioEnabled() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return new URLSearchParams(window.location.search).get("audio") === "1";
+}
+
+async function playSound(src: string, volume: number) {
+  const audio = new Audio(src);
+  audio.volume = volume;
+  await audio.play();
+}
+
 export default function OverlayPage() {
   const [{ activeDonation }, dispatch] = useReducer(overlayReducer, {
     activeDonation: null,
@@ -175,6 +191,8 @@ export default function OverlayPage() {
   });
   const seenDonationIds = useRef(new Set<string>());
   const lastWatcherErrorLogAt = useRef(0);
+  const lastAudioWarningLogAt = useRef(0);
+  const isAudioEnabled = useMemo(() => getOverlayAudioEnabled(), []);
   const creatorAddress = demoCreator.walletAddress;
   const contractAddress = emotePayContract.address;
   const isConfigured = Boolean(creatorAddress) && Boolean(contractAddress);
@@ -326,6 +344,28 @@ export default function OverlayPage() {
       window.clearTimeout(timeout);
     };
   }, [activeDonation]);
+
+  useEffect(() => {
+    if (!activeDonation || !isAudioEnabled || !activeDonation.emote.soundSrc) {
+      return;
+    }
+
+    void playSound(activeDonation.emote.soundSrc, OVERLAY_AUDIO_VOLUME).catch(
+      (error) => {
+        const now = Date.now();
+
+        if (
+          now - lastAudioWarningLogAt.current <
+          AUDIO_WARNING_LOG_INTERVAL_MS
+        ) {
+          return;
+        }
+
+        lastAudioWarningLogAt.current = now;
+        console.warn("Donation overlay audio playback failed", error);
+      },
+    );
+  }, [activeDonation, isAudioEnabled]);
 
   const statusText = useMemo(() => {
     if (isConfigured) {

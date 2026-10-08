@@ -10,6 +10,8 @@ import {
   type CreatorHistory,
 } from "@/lib/envio";
 import { EMOTES } from "@/lib/emotes";
+import { CreatorRoute } from "@/components/CreatorRoute";
+import { usePrivy } from "@privy-io/react-auth";
 
 type HistoryState =
   | { status: "idle" }
@@ -48,7 +50,8 @@ function getDonationTime(timestamp: string) {
   }).format(new Date(timestampSeconds * 1000));
 }
 
-export default function CreatorPage() {
+function CreatorContent() {
+  const { getAccessToken } = usePrivy();
   const [historyState, setHistoryState] = useState<HistoryState>({
     status: "idle",
   });
@@ -67,9 +70,20 @@ export default function CreatorPage() {
     setHistoryState({ status: "loading" });
 
     try {
+      const accessToken = await getAccessToken();
+
+      if (!accessToken) {
+        setHistoryState({
+          status: "error",
+          reason: "Creator session could not be verified.",
+        });
+        return;
+      }
+
       const history = await fetchCreatorHistory({
         apiUrl: envioApiUrl,
         creatorAddress,
+        accessToken,
       });
 
       setHistoryState(
@@ -86,7 +100,7 @@ export default function CreatorPage() {
             : "Unable to load Envio donation history.",
       });
     }
-  }, [creatorAddress, envioApiUrl]);
+  }, [creatorAddress, envioApiUrl, getAccessToken]);
 
   useEffect(() => {
     window.setTimeout(loadHistory, 0);
@@ -221,5 +235,13 @@ export default function CreatorPage() {
         )}
       </section>
     </main>
+  );
+}
+
+export default function CreatorPage() {
+  return (
+    <CreatorRoute>
+      <CreatorContent />
+    </CreatorRoute>
   );
 }
