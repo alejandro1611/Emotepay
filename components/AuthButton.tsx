@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { LogIn, LogOut, Wallet } from "lucide-react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { useRouter } from "next/navigation";
+import { LogoutConfirmationModal } from "@/components/LogoutConfirmationModal";
 
 function shortenAddress(address?: string) {
   if (!address) {
@@ -13,9 +15,12 @@ function shortenAddress(address?: string) {
 }
 
 export function AuthButton() {
+  const router = useRouter();
   const { ready, authenticated, user, login, logout } = usePrivy();
   const { ready: walletsReady, wallets } = useWallets();
+  const [isConfirmingLogout, setIsConfirmingLogout] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
 
   const embeddedWalletAddress = useMemo(() => {
     const connectedEmbeddedWallet = wallets.find(
@@ -46,6 +51,24 @@ export function AuthButton() {
   const walletStatus = embeddedWalletAddress
     ? "Embedded wallet ready"
     : "Preparing wallet";
+
+  async function handleConfirmLogout() {
+    if (isLoggingOut) {
+      return;
+    }
+
+    setLogoutError(null);
+    setIsLoggingOut(true);
+
+    try {
+      await logout();
+      router.replace("/login");
+      router.refresh();
+    } catch {
+      setLogoutError("No pudimos cerrar la sesión. Intentá nuevamente.");
+      setIsLoggingOut(false);
+    }
+  }
 
   if (!ready) {
     return (
@@ -90,16 +113,29 @@ export function AuthButton() {
       <button
         type="button"
         disabled={isLoggingOut}
-        onClick={async () => {
-          setIsLoggingOut(true);
-          await logout();
-          setIsLoggingOut(false);
+        onClick={() => {
+          setLogoutError(null);
+          setIsConfirmingLogout(true);
         }}
         className="text-sm font-medium p-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-purple-500/50 disabled:opacity-60 transition-all"
-        aria-label="Log out"
+        aria-label="Cerrar sesión"
+        title="Cerrar sesión"
       >
         <LogOut className="w-4 h-4" />
       </button>
+      {isConfirmingLogout && (
+        <LogoutConfirmationModal
+          isLoggingOut={isLoggingOut}
+          error={logoutError}
+          onCancel={() => {
+            if (!isLoggingOut) {
+              setIsConfirmingLogout(false);
+              setLogoutError(null);
+            }
+          }}
+          onConfirm={handleConfirmLogout}
+        />
+      )}
     </div>
   );
 }

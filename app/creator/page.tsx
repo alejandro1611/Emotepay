@@ -10,6 +10,7 @@ import {
   type CreatorHistory,
 } from "@/lib/envio";
 import { EMOTES } from "@/lib/emotes";
+import { AuthenticatedRoute } from "@/components/AuthenticatedRoute";
 
 type HistoryState =
   | { status: "idle" }
@@ -48,7 +49,7 @@ function getDonationTime(timestamp: string) {
   }).format(new Date(timestampSeconds * 1000));
 }
 
-export default function CreatorPage() {
+function CreatorContent() {
   const [historyState, setHistoryState] = useState<HistoryState>({
     status: "idle",
   });
@@ -221,5 +222,13 @@ export default function CreatorPage() {
         )}
       </section>
     </main>
+  );
+}
+
+export default function CreatorPage() {
+  return (
+    <AuthenticatedRoute>
+      <CreatorContent />
+    </AuthenticatedRoute>
   );
 }

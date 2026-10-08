@@ -11,6 +11,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { usePrivy, useSignTypedData, useWallets } from "@privy-io/react-auth";
+import { AuthenticatedRoute } from "@/components/AuthenticatedRoute";
 import { AuthButton } from "@/components/AuthButton";
 import { FundWalletModal } from "@/components/FundWalletModal";
 import {
@@ -311,7 +312,7 @@ function KickStreamPlayer() {
     </div>
   );
 }
-export default function Home() {
+function HomeContent() {
   const { ready, authenticated } = usePrivy();
   const { ready: walletsReady, wallets } = useWallets();
   const { signTypedData } = useSignTypedData();
@@ -1016,5 +1017,13 @@ export default function Home() {
         />
       )}
     </main>
+  );
+}
+
+export default function Home() {
+  return (
+    <AuthenticatedRoute>
+      <HomeContent />
+    </AuthenticatedRoute>
   );
 }
