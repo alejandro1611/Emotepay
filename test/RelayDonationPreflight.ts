@@ -3,10 +3,14 @@ import { describe, it } from "node:test";
 
 import {
   getAuthorizationWindowError,
-  getRelayAuthorizationKey,
   parseUnsignedDecimalString,
-  RelayedAuthorizationMemory,
 } from "../lib/relay-donation-preflight";
+import {
+  getRelayCoordinationKeys,
+  getRelayLockTtlSeconds,
+  releaseRelayLockIfOwner,
+  type RelayRedisStore,
+} from "../lib/relay-donation-security";
 import {
   createReceiveAuthorizationSigningMessage,
   createRelayDonationRequestPayload,
@@ -50,32 +54,74 @@ describe("relay donation preflights", function () {
     );
   });
 
-  it("deduplicates concurrent donor and nonce relay attempts", function () {
-    const memory = new RelayedAuthorizationMemory();
-    const key = getRelayAuthorizationKey(donor, nonce);
+  it("builds distributed relay coordination keys from chain, contract, donor, and nonce", function () {
+    const keys = getRelayCoordinationKeys({
+      chainId: 10143,
+      contractAddress: "0x0000000000000000000000000000000000000003",
+      donor,
+      nonce,
+    });
 
-    assert.equal(memory.lock(key), true);
-    assert.equal(memory.isPending(key), true);
-    assert.equal(memory.lock(key), false);
-
-    memory.unlock(key);
-
-    assert.equal(memory.isPending(key), false);
-    assert.equal(memory.lock(key), true);
+    assert.match(keys.identity, /^10143:0x0000000000000000000000000000000000000003:/);
+    assert.match(keys.lockKey, /:lock$/);
+    assert.match(keys.resultKey, /:result$/);
   });
 
-  it("returns the retained transaction hash instead of broadcasting twice", function () {
-    const memory = new RelayedAuthorizationMemory();
-    const key = getRelayAuthorizationKey(donor, nonce);
-    const relayed = {
-      hash: "0x0000000000000000000000000000000000000000000000000000000000000003",
-      amount: "100000",
-      nonce,
-    } as const;
+  it("keeps relay locks beyond the authorization window", function () {
+    assert.equal(
+      getRelayLockTtlSeconds({
+        currentTime: 100n,
+        validBefore: 200n,
+      }),
+      900,
+    );
+    assert.equal(
+      getRelayLockTtlSeconds({
+        currentTime: 100n,
+        validBefore: 2_000n,
+      }),
+      2_500,
+    );
+  });
 
-    memory.remember(key, relayed);
+  it("only releases distributed relay locks for their owner", async function () {
+    const values = new Map<string, unknown>([["lock", "owner-a"]]);
+    const redis: RelayRedisStore = {
+      async get<TData>(key: string) {
+        return (values.get(key) as TData | undefined) ?? null;
+      },
+      async set<TData>(key: string, value: TData) {
+        values.set(key, value);
+        return "OK";
+      },
+      async eval<TResult>(_script: string, keys: string[], args: string[]) {
+        if (values.get(keys[0]) === args[0]) {
+          values.delete(keys[0]);
+          return 1 as TResult;
+        }
 
-    assert.deepEqual(memory.getRelayed(key), relayed);
+        return 0 as TResult;
+      },
+    };
+
+    assert.equal(
+      await releaseRelayLockIfOwner({
+        redis,
+        lockKey: "lock",
+        owner: "owner-b",
+      }),
+      0,
+    );
+    assert.equal(values.get("lock"), "owner-a");
+    assert.equal(
+      await releaseRelayLockIfOwner({
+        redis,
+        lockKey: "lock",
+        owner: "owner-a",
+      }),
+      1,
+    );
+    assert.equal(values.has("lock"), false);
   });
 
   it("serializes the V3 signing message and relay request without raw bigint values", function () {
