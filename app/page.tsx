@@ -22,6 +22,13 @@ import { monadTestnet } from "@/lib/chains";
 import { emotePayContract } from "@/lib/contracts";
 import { demoCreator } from "@/lib/creator";
 import { EMOTES, type Emote } from "@/lib/emotes";
+import type { KickStatusResponse } from "@/lib/kick-status";
+import {
+  getKickModeLabel,
+  getResolvedKickStreamMode,
+  normalizeKickStreamMode,
+  type KickAutoStatus,
+} from "@/lib/kick-stream-mode";
 import { getPaymentReadinessState } from "@/lib/payment";
 import {
   createReceiveAuthorizationSigningMessage,
@@ -54,8 +61,9 @@ const kickPlayerUrl = kickChannel
 const kickChannelUrl = kickChannel
   ? `https://kick.com/${encodeURIComponent(kickChannel)}`
   : null;
-const kickStreamMode =
-  process.env.NEXT_PUBLIC_KICK_STREAM_MODE === "live" ? "live" : "offline";
+const kickStreamMode = normalizeKickStreamMode(
+  process.env.NEXT_PUBLIC_KICK_STREAM_MODE,
+);
 // El ancho del video se topa contra el alto de la ventana para que las
 // tarjetas de reacción entren sin scroll. 19.5rem es el alto fijo de todo lo
 // demás (header, paddings y tarjetas) y los 3rem compensan el padding
@@ -65,6 +73,7 @@ const STREAM_COLUMN_MAX_WIDTH =
 const VIEWER_SUCCESS_SOUND_SRC = "/sounds/payment-success.mp3";
 const VIEWER_SUCCESS_SOUND_VOLUME = 0.35;
 const AUDIO_WARNING_LOG_INTERVAL_MS = 30_000;
+const KICK_STATUS_POLL_INTERVAL_MS = 45_000;
 
 type BalanceCheckState =
   | { status: "idle" }
@@ -103,6 +112,12 @@ type RelayDonationResponse =
   | {
       error: string;
     };
+
+type KickAutoState = {
+  status: KickAutoStatus;
+  stale: boolean;
+  error?: string;
+};
 
 function getEmbeddedWallet(
   wallets: ReturnType<typeof useWallets>["wallets"],
@@ -236,8 +251,26 @@ function getExplorerTransactionUrl(hash: `0x${string}`) {
   return `https://testnet.monadexplorer.com/tx/${hash}`;
 }
 
-function KickStreamPlayer() {
-  const showKickIframe = kickStreamMode === "live" && Boolean(kickPlayerUrl);
+function KickStreamPlayer({
+  resolvedMode,
+  kickStatus,
+}: {
+  resolvedMode: "live" | "offline";
+  kickStatus: KickAutoState;
+}) {
+  const showKickIframe = resolvedMode === "live" && Boolean(kickPlayerUrl);
+  const previewMessage =
+    kickStreamMode === "auto" && kickStatus.status === "loading"
+      ? "Checking whether the Kick stream is live."
+      : kickStreamMode === "auto" && kickStatus.status === "unknown"
+        ? "Kick status is unavailable; showing the reaction demo."
+        : "Send a reaction to see it appear here.";
+  const previewBadge =
+    kickStreamMode === "auto" && kickStatus.status === "loading"
+      ? "Checking Kick"
+      : kickStreamMode === "auto" && kickStatus.status === "unknown"
+        ? "Status unknown"
+        : "Waiting for reactions";
 
   return (
     <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl">
@@ -262,14 +295,14 @@ function KickStreamPlayer() {
                 Live Reaction Preview
               </p>
               <p className="mt-2 max-w-sm text-sm font-medium text-slate-300 sm:text-base">
-                Send a reaction to see it appear here.
+                {previewMessage}
               </p>
               <p className="mt-1 text-xs font-semibold uppercase tracking-wider text-purple-200/80">
                 Real USDC payments on Monad Testnet
               </p>
               <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-bold text-emerald-200">
                 <span className="h-2 w-2 rounded-full bg-emerald-300" />
-                Waiting for reactions
+                {previewBadge}
               </div>
             </div>
           </div>
@@ -301,7 +334,9 @@ function KickStreamPlayer() {
                 Stream preview
               </p>
               <p className="hidden text-[11px] text-slate-400 sm:block">
-                Live mode is using the Kick player.
+                {kickStatus.stale
+                  ? "Kick status is using cached data."
+                  : "Live mode is using the Kick player."}
               </p>
             </div>
             {kickChannelUrl && (
@@ -337,6 +372,10 @@ function HomeContent() {
     null,
   );
   const [isFundWalletOpen, setIsFundWalletOpen] = useState(false);
+  const [kickAutoState, setKickAutoState] = useState<KickAutoState>({
+    status: kickStreamMode === "auto" ? "loading" : "unknown",
+    stale: false,
+  });
   const successSoundReference = useRef<`0x${string}` | null>(null);
   const lastAudioWarningLogAt = useRef(0);
 
@@ -356,7 +395,16 @@ function HomeContent() {
   });
   const effectiveBalanceCheck: BalanceCheckState =
     readinessState.status === "ready" ? balanceCheck : { status: "idle" };
-  const isLiveStreamMode = kickStreamMode === "live";
+  const resolvedKickStreamMode = getResolvedKickStreamMode({
+    configuredMode: kickStreamMode,
+    autoStatus: kickAutoState.status,
+  });
+  const isLiveStreamMode = resolvedKickStreamMode === "live";
+  const kickModeLabel = getKickModeLabel({
+    configuredMode: kickStreamMode,
+    autoStatus: kickAutoState.status,
+    stale: kickAutoState.stale,
+  });
   const balanceCheckMessage =
     effectiveBalanceCheck.status === "insufficient" ||
     effectiveBalanceCheck.status === "error"
@@ -451,6 +499,75 @@ function HomeContent() {
 
     return null;
   })();
+
+  useEffect(() => {
+    if (kickStreamMode !== "auto") {
+      return;
+    }
+
+    let isMounted = true;
+    let intervalId: number | null = null;
+
+    const updateKickStatus = async () => {
+      try {
+        const response = await fetch("/api/kick/status", {
+          headers: {
+            accept: "application/json",
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error("Kick status request failed.");
+        }
+
+        const status = (await response.json()) as KickStatusResponse;
+
+        if (!isMounted) {
+          return;
+        }
+
+        setKickAutoState({
+          status: status.status,
+          stale: status.stale,
+          error: status.error,
+        });
+      } catch {
+        if (!isMounted) {
+          return;
+        }
+
+        setKickAutoState((current) => {
+          if (current.status === "live" || current.status === "offline") {
+            return {
+              ...current,
+              stale: true,
+              error: "Kick status is temporarily unavailable.",
+            };
+          }
+
+          return {
+            status: "unknown",
+            stale: false,
+            error: "Kick status is temporarily unavailable.",
+          };
+        });
+      }
+    };
+
+    void updateKickStatus();
+    intervalId = window.setInterval(
+      updateKickStatus,
+      KICK_STATUS_POLL_INTERVAL_MS,
+    );
+
+    return () => {
+      isMounted = false;
+
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (
@@ -853,12 +970,16 @@ function HomeContent() {
                   <Radio className="h-3.5 w-3.5 shrink-0" />
                 )}
                 <span className="hidden sm:inline">
-                  {isLiveStreamMode ? "Live on Kick" : "Reaction Demo"}
+                  {kickModeLabel}
                 </span>
                 <span className="sm:hidden">
-                  {isLiveStreamMode ? "Live" : "Demo"}
+                  {isLiveStreamMode
+                    ? "Live"
+                    : kickAutoState.status === "loading"
+                      ? "Checking"
+                      : "Demo"}
                 </span>
-              </span>
+                </span>
               <details className="relative">
                 <summary
                   aria-label="Transaction details"
@@ -921,7 +1042,10 @@ function HomeContent() {
             </div>
           </div>
 
-          <KickStreamPlayer />
+          <KickStreamPlayer
+            resolvedMode={resolvedKickStreamMode}
+            kickStatus={kickAutoState}
+          />
 
           {paymentNotice && (
             <div
