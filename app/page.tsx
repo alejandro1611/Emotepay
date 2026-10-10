@@ -21,6 +21,7 @@ import {
 import { monadTestnet } from "@/lib/chains";
 import { emotePayContract } from "@/lib/contracts";
 import { demoCreator } from "@/lib/creator";
+import { getPrivyEmbeddedEvmWallet } from "@/lib/embedded-wallet";
 import { EMOTES, type Emote } from "@/lib/emotes";
 import type { KickStatusResponse } from "@/lib/kick-status";
 import {
@@ -30,6 +31,13 @@ import {
   type KickAutoStatus,
 } from "@/lib/kick-stream-mode";
 import { getPaymentReadinessState } from "@/lib/payment";
+import {
+  formatTokenAmount,
+  getPaymentBalanceCheckState,
+  isInsufficientUsdcReason,
+  shouldApplyBalanceResponse,
+  type PaymentBalanceCheckState,
+} from "@/lib/payment-balance";
 import {
   createReceiveAuthorizationSigningMessage,
   createRelayDonationRequestPayload,
@@ -42,7 +50,6 @@ import {
 import {
   createPublicClient,
   erc20Abi,
-  formatUnits,
   http,
   isAddressEqual,
   type Address,
@@ -64,27 +71,12 @@ const kickChannelUrl = kickChannel
 const kickStreamMode = normalizeKickStreamMode(
   process.env.NEXT_PUBLIC_KICK_STREAM_MODE,
 );
-// El ancho del video se topa contra el alto de la ventana para que las
-// tarjetas de reacción entren sin scroll. 19.5rem es el alto fijo de todo lo
-// demás (header, paddings y tarjetas) y los 3rem compensan el padding
-// horizontal, que el max-width incluye por el box-sizing de Tailwind.
-const STREAM_COLUMN_MAX_WIDTH =
-  "min(896px, calc((100vh - 19.5rem) * 16 / 9 + 3rem))";
+const STREAM_COLUMN_MAX_WIDTH = "896px";
 const VIEWER_SUCCESS_SOUND_SRC = "/sounds/payment-success.mp3";
 const VIEWER_SUCCESS_SOUND_VOLUME = 0.35;
 const AUDIO_WARNING_LOG_INTERVAL_MS = 30_000;
 const KICK_STATUS_POLL_INTERVAL_MS = 45_000;
-
-type BalanceCheckState =
-  | { status: "idle" }
-  | { status: "checking" }
-  | {
-      status: "ready";
-      usdcAddress: Address;
-      contractPrice: bigint;
-    }
-  | { status: "insufficient"; reason: string }
-  | { status: "error"; reason: string };
+const BALANCE_REFRESH_INTERVAL_MS = 25_000;
 
 type TransactionState =
   | { status: "idle" }
@@ -98,6 +90,7 @@ type ReactionConfirmation = {
   phase: ConfirmationPhase;
   emote: Emote;
   usdcAddress: Address;
+  usdcDecimals: number;
   contractPrice: bigint;
   errorMessage?: string;
   notice?: string;
@@ -122,12 +115,7 @@ type KickAutoState = {
 function getEmbeddedWallet(
   wallets: ReturnType<typeof useWallets>["wallets"],
 ) {
-  return wallets.find(
-    (wallet) =>
-      wallet.type === "ethereum" &&
-      (wallet.walletClientType === "privy" ||
-        wallet.walletClientType === "privy-v2"),
-  );
+  return getPrivyEmbeddedEvmWallet(wallets);
 }
 
 function shortenAddress(address?: string | null) {
@@ -160,7 +148,7 @@ function getTransactionErrorMessage(error: unknown) {
     lowerMessage.includes("insufficient") ||
     lowerMessage.includes("exceeds balance")
   ) {
-    return "Not enough USDC, or not enough MON for gas.";
+    return "Not enough USDC to send this reaction.";
   }
 
   if (lowerMessage.includes("revert")) {
@@ -194,12 +182,13 @@ function getReadinessMessage(reason: string) {
   return reason;
 }
 
-function formatUsdcAmount(amount: bigint) {
-  const fullAmount = formatUnits(amount, 6);
-  const [whole, fraction = ""] = fullAmount.split(".");
-  const visibleFraction = fraction.slice(0, 6).replace(/0+$/, "");
-
-  return `${visibleFraction ? `${whole}.${visibleFraction}` : whole} USDC`;
+function formatUsdcAmount(amount: bigint, decimals = 6) {
+  return `${formatTokenAmount({
+    amount,
+    decimals,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 6,
+  })} USDC`;
 }
 
 function createRandomSalt(): Hex {
@@ -233,17 +222,25 @@ async function getPaymentRequirements({
       args: [BigInt(onchainId)],
     }),
   ]);
-  const usdcBalance = await monadPublicClient.readContract({
-    address: usdcAddress,
-    abi: erc20Abi,
-    functionName: "balanceOf",
-    args: [donorAddress],
-  });
+  const [usdcBalance, usdcDecimals] = await Promise.all([
+    monadPublicClient.readContract({
+      address: usdcAddress,
+      abi: erc20Abi,
+      functionName: "balanceOf",
+      args: [donorAddress],
+    }),
+    monadPublicClient.readContract({
+      address: usdcAddress,
+      abi: erc20Abi,
+      functionName: "decimals",
+    }),
+  ]);
 
   return {
     usdcAddress,
     contractPrice,
     usdcBalance,
+    usdcDecimals,
   };
 }
 
@@ -273,37 +270,43 @@ function KickStreamPlayer({
         : "Waiting for reactions";
 
   return (
-    <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl">
+    <div
+      className={`relative w-full overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl ${
+        showKickIframe
+          ? "aspect-video"
+          : "min-h-[18.5rem] sm:aspect-video sm:min-h-0"
+      }`}
+    >
       {!showKickIframe && (
         <>
           <div className="absolute inset-0 z-0 bg-slate-950">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_28%,rgba(168,85,247,0.22),transparent_42%),radial-gradient(circle_at_18%_85%,rgba(16,185,129,0.12),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.25),rgba(2,6,23,0.96))]" />
+          </div>
 
-            <div className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center">
-              <div className="relative">
-                <div className="absolute inset-0 rounded-full bg-purple-500/25 blur-2xl" />
-                <div className="relative h-16 w-16 sm:h-20 sm:w-20">
-                  <Image
-                    src="/emotepay-logo.png"
-                    alt=""
-                    fill
-                    className="object-contain opacity-95"
-                  />
-                </div>
+          <div className="relative z-0 flex min-h-[18.5rem] flex-col items-center justify-center px-4 py-7 text-center sm:absolute sm:inset-0 sm:min-h-0 sm:px-6 sm:py-6">
+            <div className="relative">
+              <div className="absolute inset-0 rounded-full bg-purple-500/25 blur-2xl" />
+              <div className="relative h-14 w-14 sm:h-20 sm:w-20">
+                <Image
+                  src="/emotepay-logo.png"
+                  alt=""
+                  fill
+                  className="object-contain opacity-95"
+                />
               </div>
-              <p className="mt-5 text-2xl font-black text-white sm:text-3xl">
-                Live Reaction Preview
-              </p>
-              <p className="mt-2 max-w-sm text-sm font-medium text-slate-300 sm:text-base">
-                {previewMessage}
-              </p>
-              <p className="mt-1 text-xs font-semibold uppercase tracking-wider text-purple-200/80">
-                Real USDC payments on Monad Testnet
-              </p>
-              <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-bold text-emerald-200">
-                <span className="h-2 w-2 rounded-full bg-emerald-300" />
-                {previewBadge}
-              </div>
+            </div>
+            <p className="mt-4 text-[clamp(1.35rem,6.2vw,1.875rem)] font-black leading-tight text-white sm:mt-5">
+              Live Reaction Preview
+            </p>
+            <p className="mt-2 max-w-[18rem] text-[clamp(0.82rem,3.6vw,1rem)] font-medium leading-snug text-slate-300 sm:max-w-sm">
+              {previewMessage}
+            </p>
+            <p className="mt-2 text-[0.68rem] font-semibold uppercase leading-tight tracking-wider text-purple-200/80 sm:text-xs">
+              Real USDC payments on Monad Testnet
+            </p>
+            <div className="mt-4 inline-flex max-w-full items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-bold leading-none text-emerald-200 sm:mt-5">
+              <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-300" />
+              <span className="truncate">{previewBadge}</span>
             </div>
           </div>
           <iframe
@@ -356,6 +359,80 @@ function KickStreamPlayer({
     </div>
   );
 }
+
+function UsdcBalanceIndicator({
+  authenticated,
+  walletsReady,
+  embeddedWalletAddress,
+  balanceCheck,
+  onRetry,
+}: {
+  authenticated: boolean;
+  walletsReady: boolean;
+  embeddedWalletAddress?: Address;
+  balanceCheck: PaymentBalanceCheckState;
+  onRetry: () => void;
+}) {
+  if (!authenticated) {
+    return null;
+  }
+
+  const baseClassName =
+    "inline-flex h-11 shrink-0 items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900 px-2.5 text-xs font-semibold text-slate-200 sm:gap-2 sm:px-3";
+
+  if (!walletsReady || !embeddedWalletAddress || balanceCheck.status === "idle") {
+    return (
+      <div className={baseClassName} aria-label="USDC balance loading">
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-300" />
+        <span className="hidden sm:inline">USDC</span>
+      </div>
+    );
+  }
+
+  if (balanceCheck.status === "checking") {
+    return (
+      <div className={baseClassName} aria-label="USDC balance loading">
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-300" />
+        <span className="hidden sm:inline">Checking</span>
+      </div>
+    );
+  }
+
+  if (balanceCheck.status === "error") {
+    return (
+      <button
+        type="button"
+        onClick={onRetry}
+        className={`${baseClassName} text-amber-100 transition-colors hover:border-amber-400/50 hover:text-white`}
+        aria-label="Retry USDC balance check"
+      >
+        <AlertCircle className="h-3.5 w-3.5 text-amber-300" />
+        <span>Retry</span>
+      </button>
+    );
+  }
+
+  const balanceLabel = formatTokenAmount({
+    amount: balanceCheck.usdcBalance,
+    decimals: balanceCheck.usdcDecimals,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+  return (
+    <div
+      className={`${baseClassName} min-w-0`}
+      aria-label={`USDC balance ${balanceLabel}`}
+      title={`${balanceLabel} USDC`}
+    >
+      <Wallet className="h-3.5 w-3.5 shrink-0 text-purple-300" />
+      <span className="min-w-0 max-w-[4.75rem] truncate tabular-nums sm:max-w-none">
+        {balanceLabel}
+      </span>
+      <span className="hidden text-slate-400 sm:inline">USDC</span>
+    </div>
+  );
+}
 function HomeContent() {
   const { ready, authenticated } = usePrivy();
   const { ready: walletsReady, wallets } = useWallets();
@@ -364,7 +441,7 @@ function HomeContent() {
   const [transactionState, setTransactionState] = useState<TransactionState>({
     status: "idle",
   });
-  const [balanceCheck, setBalanceCheck] = useState<BalanceCheckState>({
+  const [balanceCheck, setBalanceCheck] = useState<PaymentBalanceCheckState>({
     status: "idle",
   });
   const [showSuccessBanner, setShowSuccessBanner] = useState(false);
@@ -372,12 +449,15 @@ function HomeContent() {
     null,
   );
   const [isFundWalletOpen, setIsFundWalletOpen] = useState(false);
+  const [balanceRefreshNonce, setBalanceRefreshNonce] = useState(0);
   const [kickAutoState, setKickAutoState] = useState<KickAutoState>({
     status: kickStreamMode === "auto" ? "loading" : "unknown",
     stale: false,
   });
   const successSoundReference = useRef<`0x${string}` | null>(null);
   const lastAudioWarningLogAt = useRef(0);
+  const balanceRequestId = useRef(0);
+  const currentEmbeddedWalletAddress = useRef<Address | undefined>(undefined);
 
   const embeddedWallet = useMemo(() => getEmbeddedWallet(wallets), [wallets]);
   const embeddedWalletAddress = embeddedWallet?.address as Address | undefined;
@@ -393,7 +473,7 @@ function HomeContent() {
     contractStatus: emotePayContract.configurationStatus,
     isSelfDonation,
   });
-  const effectiveBalanceCheck: BalanceCheckState =
+  const effectiveBalanceCheck: PaymentBalanceCheckState =
     readinessState.status === "ready" ? balanceCheck : { status: "idle" };
   const resolvedKickStreamMode = getResolvedKickStreamMode({
     configuredMode: kickStreamMode,
@@ -405,30 +485,23 @@ function HomeContent() {
     autoStatus: kickAutoState.status,
     stale: kickAutoState.stale,
   });
-  const balanceCheckMessage =
-    effectiveBalanceCheck.status === "insufficient" ||
-    effectiveBalanceCheck.status === "error"
-      ? effectiveBalanceCheck.reason
-      : null;
   const isActivePayment =
     transactionState.status === "awaiting-approval" ||
     transactionState.status === "submitting" ||
     transactionState.status === "confirming";
-  const canSendReaction =
-    readinessState.status === "ready" &&
-    !isActivePayment &&
-    effectiveBalanceCheck.status === "ready";
   const lastHash =
     transactionState.status === "confirming"
       ? transactionState.hash
       : transactionState.status === "success"
         ? transactionState.reference
-        : undefined;
-  // El aviso va sobre el video, así que solo entran los estados que piden
-  // atención y en el largo de una etiqueta. Los demás devuelven null: "listo
-  // para enviar" quedaría fijo encima del stream sin aportar nada, y la
-  // verificación de saldo dura menos de un segundo, así que un cartel que
-  // parpadea molesta más de lo que informa.
+      : undefined;
+
+  useEffect(() => {
+    currentEmbeddedWalletAddress.current = embeddedWalletAddress;
+  }, [embeddedWalletAddress]);
+  // Solo mostramos estados que piden atención. Los demás devuelven null:
+  // "listo para enviar" no aporta mucho, y la verificación de saldo dura menos
+  // de un segundo, así que un cartel que parpadea molesta más de lo que informa.
   const paymentNotice = (() => {
     if (transactionState.status === "awaiting-approval") {
       return {
@@ -464,6 +537,13 @@ function HomeContent() {
     }
 
     if (transactionState.status === "failure") {
+      if (
+        effectiveBalanceCheck.status === "ready" &&
+        isInsufficientUsdcReason(transactionState.reason)
+      ) {
+        return null;
+      }
+
       return {
         tone: "error",
         title: "Not sent",
@@ -581,10 +661,16 @@ function HomeContent() {
 
     const donorAddress = embeddedWalletAddress;
     const contractAddress = emotePayContract.address;
+    const requestId = balanceRequestId.current + 1;
+    balanceRequestId.current = requestId;
     let isCancelled = false;
 
     async function checkWalletBalance() {
-      setBalanceCheck({ status: "checking" });
+      setBalanceCheck({
+        status: "checking",
+        walletAddress: donorAddress,
+        checkedOnchainId: selectedEmote.onchainId,
+      });
 
       try {
         const requirements = await getPaymentRequirements({
@@ -597,23 +683,38 @@ function HomeContent() {
           return;
         }
 
-        if (requirements.usdcBalance < requirements.contractPrice) {
-          setBalanceCheck({
-            status: "insufficient",
-            reason: "Fund your embedded wallet to send this reaction.",
-          });
+        if (
+          !shouldApplyBalanceResponse({
+            currentRequestId: balanceRequestId.current,
+            responseRequestId: requestId,
+            currentWalletAddress: currentEmbeddedWalletAddress.current,
+            responseWalletAddress: donorAddress,
+          })
+        ) {
           return;
         }
 
-        setBalanceCheck({
-          status: "ready",
-          usdcAddress: requirements.usdcAddress,
-          contractPrice: requirements.contractPrice,
-        });
+        setBalanceCheck(
+          getPaymentBalanceCheckState({
+            ...requirements,
+            walletAddress: donorAddress,
+            checkedOnchainId: selectedEmote.onchainId,
+          }),
+        );
       } catch {
-        if (!isCancelled) {
+        if (
+          !isCancelled &&
+          shouldApplyBalanceResponse({
+            currentRequestId: balanceRequestId.current,
+            responseRequestId: requestId,
+            currentWalletAddress: currentEmbeddedWalletAddress.current,
+            responseWalletAddress: donorAddress,
+          })
+        ) {
           setBalanceCheck({
             status: "error",
+            walletAddress: donorAddress,
+            checkedOnchainId: selectedEmote.onchainId,
             // El título del aviso ya dice qué falló: acá va qué hacer.
             reason: "Try again in a moment.",
           });
@@ -628,9 +729,39 @@ function HomeContent() {
     };
   }, [
     embeddedWalletAddress,
+    balanceRefreshNonce,
     readinessState.status,
     selectedEmote.onchainId,
   ]);
+
+  useEffect(() => {
+    if (readinessState.status !== "ready") {
+      return;
+    }
+
+    const refreshBalance = () => {
+      setBalanceRefreshNonce((current) => current + 1);
+    };
+    const refreshBalanceWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        refreshBalance();
+      }
+    };
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        refreshBalance();
+      }
+    }, BALANCE_REFRESH_INTERVAL_MS);
+
+    window.addEventListener("focus", refreshBalance);
+    document.addEventListener("visibilitychange", refreshBalanceWhenVisible);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshBalance);
+      document.removeEventListener("visibilitychange", refreshBalanceWhenVisible);
+    };
+  }, [readinessState.status, embeddedWalletAddress]);
 
   useEffect(() => {
     if (!showSuccessBanner) {
@@ -662,22 +793,25 @@ function HomeContent() {
 
   // La tarjeta es la acción: recibe su emote en vez de leer el seleccionado,
   // porque `setSelectedEmote` todavía no se aplicó cuando esto corre.
-  const handleSendReaction = (emote: Emote) => {
+  const handleSendReaction = async (emote: Emote) => {
     setShowSuccessBanner(false);
     setSelectedEmote(emote);
 
-    if (!canSendReaction || effectiveBalanceCheck.status !== "ready") {
+    if (isActivePayment) {
+      return;
+    }
+
+    if (readinessState.status !== "ready") {
       setTransactionState({
         status: "failure",
         reason:
-          balanceCheckMessage ??
-          (readinessState.status === "error"
+          readinessState.status === "error"
             ? getReadinessMessage(readinessState.reason)
             : // Sin sesión la readiness es "idle", no "error", así que este
               // caso hay que nombrarlo acá o cae en un genérico inútil.
               !authenticated
               ? "Sign in to send a reaction."
-              : "This reaction isn't ready yet."),
+              : "This reaction isn't ready yet.",
       });
       return;
     }
@@ -690,12 +824,82 @@ function HomeContent() {
       return;
     }
 
+    const donorAddress = embeddedWallet.address as Address;
+    const requestId = balanceRequestId.current + 1;
+    balanceRequestId.current = requestId;
     setTransactionState({ status: "idle" });
+    setBalanceCheck({
+      status: "checking",
+      walletAddress: donorAddress,
+      checkedOnchainId: emote.onchainId,
+    });
+
+    let requirements: Awaited<ReturnType<typeof getPaymentRequirements>>;
+
+    try {
+      requirements = await getPaymentRequirements({
+        contractAddress: emotePayContract.address,
+        donorAddress,
+        onchainId: emote.onchainId,
+      });
+    } catch {
+      if (
+        !shouldApplyBalanceResponse({
+          currentRequestId: balanceRequestId.current,
+          responseRequestId: requestId,
+          currentWalletAddress: currentEmbeddedWalletAddress.current,
+          responseWalletAddress: donorAddress,
+        })
+      ) {
+        return;
+      }
+
+      setBalanceCheck({
+        status: "error",
+        walletAddress: donorAddress,
+        checkedOnchainId: emote.onchainId,
+        reason: "Try again in a moment.",
+      });
+      setTransactionState({
+        status: "failure",
+        reason: "Try again in a moment.",
+      });
+      return;
+    }
+
+    if (
+      !shouldApplyBalanceResponse({
+        currentRequestId: balanceRequestId.current,
+        responseRequestId: requestId,
+        currentWalletAddress: currentEmbeddedWalletAddress.current,
+        responseWalletAddress: donorAddress,
+      })
+    ) {
+      return;
+    }
+
+    const nextBalanceCheck = getPaymentBalanceCheckState({
+      ...requirements,
+      walletAddress: donorAddress,
+      checkedOnchainId: emote.onchainId,
+    });
+
+    setBalanceCheck(nextBalanceCheck);
+
+    if (nextBalanceCheck.status === "insufficient") {
+      setTransactionState({
+        status: "failure",
+        reason: nextBalanceCheck.reason,
+      });
+      return;
+    }
+
     setConfirmation({
       phase: "review",
       emote,
-      usdcAddress: effectiveBalanceCheck.usdcAddress,
-      contractPrice: effectiveBalanceCheck.contractPrice,
+      usdcAddress: nextBalanceCheck.usdcAddress,
+      usdcDecimals: nextBalanceCheck.usdcDecimals,
+      contractPrice: nextBalanceCheck.contractPrice,
     });
   };
 
@@ -737,6 +941,7 @@ function HomeContent() {
           phase: "review",
           emote: pending.emote,
           usdcAddress: requirements.usdcAddress,
+          usdcDecimals: requirements.usdcDecimals,
           contractPrice: requirements.contractPrice,
           notice:
             "The reaction amount changed. Please review it again before confirming.",
@@ -748,10 +953,17 @@ function HomeContent() {
       if (requirements.usdcBalance < requirements.contractPrice) {
         const reason = `Your embedded wallet needs at least ${formatUsdcAmount(
           requirements.contractPrice,
+          requirements.usdcDecimals,
         )} to send this reaction.`;
         setBalanceCheck({
           status: "insufficient",
           reason,
+          walletAddress: donorAddress,
+          usdcAddress: requirements.usdcAddress,
+          usdcBalance: requirements.usdcBalance,
+          usdcDecimals: requirements.usdcDecimals,
+          contractPrice: requirements.contractPrice,
+          checkedOnchainId: pending.emote.onchainId,
         });
         setTransactionState({
           status: "failure",
@@ -869,6 +1081,7 @@ function HomeContent() {
       setConfirmation((current) =>
         current ? { ...current, phase: "delivered" } : current,
       );
+      setBalanceRefreshNonce((current) => current + 1);
       if (successSoundReference.current !== relayResult.hash) {
         successSoundReference.current = relayResult.hash;
         void playSound(
@@ -903,37 +1116,44 @@ function HomeContent() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-white font-sans selection:bg-purple-500 selection:text-white">
-      <header className="border-b border-slate-800/80 bg-slate-950/95 sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="relative w-15 h-15 shrink-0">
+      <header className="sticky top-0 z-50 border-b border-slate-800/80 bg-slate-950/95">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-3 py-2 sm:h-16 sm:px-6 sm:py-0">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+            <div className="relative h-11 w-11 shrink-0 sm:h-14 sm:w-14">
               <Image
-                    src="/emotepay-logo.png"
-                    alt="EmotePay logo"
-                    fill 
-                    priority
-                    className="object-contain"
+                src="/emotepay-logo.png"
+                alt="EmotePay logo"
+                fill
+                priority
+                className="object-contain"
               />
-          </div>
-            <span className="font-bold text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-slate-400">
+            </div>
+            <span className="hidden truncate bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-xl font-bold tracking-tight text-transparent min-[430px]:inline">
               Emote<span className="text-purple-400">Pay</span>
             </span>
           </div>
-          <div className="flex items-center gap-2 sm:gap-3">
-            <div className="hidden sm:flex text-xs font-medium px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 items-center gap-2 text-slate-300">
+          <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5 sm:gap-2">
+            <div className="hidden h-11 items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-3 text-xs font-medium text-slate-300 md:flex">
               <span className="w-2 h-2 rounded-full bg-emerald-400" />
               Testnet
             </div>
+            <UsdcBalanceIndicator
+              authenticated={authenticated}
+              walletsReady={walletsReady}
+              embeddedWalletAddress={embeddedWalletAddress}
+              balanceCheck={effectiveBalanceCheck}
+              onRetry={() => setBalanceRefreshNonce((current) => current + 1)}
+            />
             {authenticated && (
               <button
                 type="button"
                 onClick={() => setIsFundWalletOpen(true)}
                 disabled={!embeddedWalletAddress}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-200 transition-colors hover:border-purple-500/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900 px-2.5 text-sm font-semibold text-slate-200 transition-colors hover:border-purple-500/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 sm:gap-2 sm:px-3"
               >
                 <Wallet className="h-4 w-4 text-purple-300" />
+                <span className="hidden min-[360px]:inline sm:hidden">Fund</span>
                 <span className="hidden sm:inline">Fund wallet</span>
-                <span className="sm:hidden">Fund</span>
               </button>
             )}
             <AuthButton />
@@ -949,7 +1169,7 @@ function HomeContent() {
             los chips bajan al flujo, arriba y abajo del reproductor. */}
         <div className="relative">
           <div className="mb-2 flex items-center justify-between gap-2 sm:absolute sm:inset-x-3 sm:top-3 sm:z-30 sm:mb-0">
-            <div className="flex min-w-0 items-center gap-2 rounded-full border border-slate-700 bg-slate-950/80 py-1.5 pl-1.5 pr-3.5 backdrop-blur-sm">
+            <div className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-slate-700 bg-slate-950/80 py-1.5 pl-1.5 pr-3.5 backdrop-blur-sm sm:max-w-[60%]">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-amber-400 to-purple-500 text-xs font-black text-slate-950">
                 {demoCreator.displayName.slice(0, 1)}
               </div>
@@ -958,9 +1178,9 @@ function HomeContent() {
               </span>
             </div>
 
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
               <span
-                className={`flex items-center gap-2 rounded-full border bg-slate-950/80 px-3 py-1.5 text-xs font-semibold backdrop-blur-sm ${
+                className={`flex min-h-9 items-center gap-1.5 rounded-full border bg-slate-950/80 px-2.5 py-1.5 text-xs font-semibold backdrop-blur-sm sm:gap-2 sm:px-3 ${
                   isLiveStreamMode
                     ? "border-emerald-700 text-emerald-300"
                     : "border-purple-400/30 text-purple-100"
@@ -979,11 +1199,11 @@ function HomeContent() {
                       ? "Checking"
                       : "Demo"}
                 </span>
-                </span>
+              </span>
               <details className="relative">
                 <summary
                   aria-label="Transaction details"
-                  className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-full border border-slate-700 bg-slate-950/80 text-slate-300 backdrop-blur-sm transition-colors hover:text-white"
+                  className="flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-full border border-slate-700 bg-slate-950/80 text-slate-300 backdrop-blur-sm transition-colors hover:text-white"
                 >
                   <Info className="h-4 w-4" />
                 </summary>
@@ -1051,7 +1271,7 @@ function HomeContent() {
             <div
               role={paymentNotice.tone === "error" ? "alert" : "status"}
               aria-live={paymentNotice.tone === "error" ? "assertive" : "polite"}
-              className={`mt-2 flex items-center gap-2.5 rounded-xl border px-3.5 py-2.5 backdrop-blur-sm sm:absolute sm:bottom-3 sm:left-3 sm:mt-0 sm:max-w-[calc(100%-1.5rem)] ${
+              className={`mt-3 rounded-xl border p-3 backdrop-blur-sm sm:max-w-[28rem] ${
                 paymentNotice.tone === "success"
                   ? "border-emerald-600 bg-emerald-950/90"
                   : paymentNotice.tone === "error"
@@ -1059,25 +1279,27 @@ function HomeContent() {
                     : "border-purple-600 bg-purple-950/90"
               }`}
             >
-              {paymentNotice.tone === "success" ? (
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-300" />
-              ) : paymentNotice.tone === "error" ? (
-                <AlertCircle className="h-4 w-4 shrink-0 text-amber-300" />
-              ) : (
-                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-purple-300" />
-              )}
-              <p className="min-w-0 text-[13px] text-slate-200">
-                <span className="font-bold text-white">
-                  {paymentNotice.title}
-                </span>{" "}
-                {paymentNotice.body}
-              </p>
+              <div className="flex items-start gap-2.5">
+                {paymentNotice.tone === "success" ? (
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
+                ) : paymentNotice.tone === "error" ? (
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                ) : (
+                  <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-purple-300" />
+                )}
+                <p className="min-w-0 flex-1 text-[13px] leading-5 text-slate-200">
+                  <span className="font-bold text-white">
+                    {paymentNotice.title}
+                  </span>{" "}
+                  {paymentNotice.body}
+                </p>
+              </div>
               {effectiveBalanceCheck.status === "insufficient" && (
                 <button
                   type="button"
                   onClick={() => setIsFundWalletOpen(true)}
                   disabled={!embeddedWalletAddress}
-                  className="ml-auto shrink-0 rounded-lg border border-amber-300/30 bg-amber-300/10 px-2.5 py-1.5 text-xs font-bold text-amber-100 transition-colors hover:bg-amber-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="mt-2 inline-flex h-9 w-full items-center justify-center rounded-lg border border-amber-300/30 bg-amber-300/10 px-3 text-xs font-bold text-amber-100 transition-colors hover:bg-amber-300/20 disabled:cursor-not-allowed disabled:opacity-50 sm:ml-6 sm:w-auto"
                 >
                   Fund wallet
                 </button>
@@ -1148,7 +1370,10 @@ function HomeContent() {
         <ReactionConfirmationModal
           phase={confirmation.phase}
           emote={confirmation.emote}
-          amountLabel={formatUsdcAmount(confirmation.contractPrice)}
+          amountLabel={formatUsdcAmount(
+            confirmation.contractPrice,
+            confirmation.usdcDecimals,
+          )}
           creatorName={demoCreator.displayName}
           creatorAddress={demoCreator.walletAddress}
           contractAddress={emotePayContract.address}
@@ -1167,7 +1392,10 @@ function HomeContent() {
         <FundWalletModal
           walletAddress={embeddedWalletAddress}
           networkName={monadTestnet.name}
-          onDismiss={() => setIsFundWalletOpen(false)}
+          onDismiss={() => {
+            setIsFundWalletOpen(false);
+            setBalanceRefreshNonce((current) => current + 1);
+          }}
         />
       )}
     </main>
