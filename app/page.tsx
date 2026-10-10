@@ -71,12 +71,7 @@ const kickChannelUrl = kickChannel
 const kickStreamMode = normalizeKickStreamMode(
   process.env.NEXT_PUBLIC_KICK_STREAM_MODE,
 );
-// El ancho del video se topa contra el alto de la ventana para que las
-// tarjetas de reacción entren sin scroll. 19.5rem es el alto fijo de todo lo
-// demás (header, paddings y tarjetas) y los 3rem compensan el padding
-// horizontal, que el max-width incluye por el box-sizing de Tailwind.
-const STREAM_COLUMN_MAX_WIDTH =
-  "min(896px, calc((100vh - 19.5rem) * 16 / 9 + 3rem))";
+const STREAM_COLUMN_MAX_WIDTH = "896px";
 const VIEWER_SUCCESS_SOUND_SRC = "/sounds/payment-success.mp3";
 const VIEWER_SUCCESS_SOUND_VOLUME = 0.35;
 const AUDIO_WARNING_LOG_INTERVAL_MS = 30_000;
@@ -275,37 +270,43 @@ function KickStreamPlayer({
         : "Waiting for reactions";
 
   return (
-    <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl">
+    <div
+      className={`relative w-full overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl ${
+        showKickIframe
+          ? "aspect-video"
+          : "min-h-[18.5rem] sm:aspect-video sm:min-h-0"
+      }`}
+    >
       {!showKickIframe && (
         <>
           <div className="absolute inset-0 z-0 bg-slate-950">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_28%,rgba(168,85,247,0.22),transparent_42%),radial-gradient(circle_at_18%_85%,rgba(16,185,129,0.12),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.25),rgba(2,6,23,0.96))]" />
+          </div>
 
-            <div className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center">
-              <div className="relative">
-                <div className="absolute inset-0 rounded-full bg-purple-500/25 blur-2xl" />
-                <div className="relative h-16 w-16 sm:h-20 sm:w-20">
-                  <Image
-                    src="/emotepay-logo.png"
-                    alt=""
-                    fill
-                    className="object-contain opacity-95"
-                  />
-                </div>
+          <div className="relative z-0 flex min-h-[18.5rem] flex-col items-center justify-center px-4 py-7 text-center sm:absolute sm:inset-0 sm:min-h-0 sm:px-6 sm:py-6">
+            <div className="relative">
+              <div className="absolute inset-0 rounded-full bg-purple-500/25 blur-2xl" />
+              <div className="relative h-14 w-14 sm:h-20 sm:w-20">
+                <Image
+                  src="/emotepay-logo.png"
+                  alt=""
+                  fill
+                  className="object-contain opacity-95"
+                />
               </div>
-              <p className="mt-5 text-2xl font-black text-white sm:text-3xl">
-                Live Reaction Preview
-              </p>
-              <p className="mt-2 max-w-sm text-sm font-medium text-slate-300 sm:text-base">
-                {previewMessage}
-              </p>
-              <p className="mt-1 text-xs font-semibold uppercase tracking-wider text-purple-200/80">
-                Real USDC payments on Monad Testnet
-              </p>
-              <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-bold text-emerald-200">
-                <span className="h-2 w-2 rounded-full bg-emerald-300" />
-                {previewBadge}
-              </div>
+            </div>
+            <p className="mt-4 text-[clamp(1.35rem,6.2vw,1.875rem)] font-black leading-tight text-white sm:mt-5">
+              Live Reaction Preview
+            </p>
+            <p className="mt-2 max-w-[18rem] text-[clamp(0.82rem,3.6vw,1rem)] font-medium leading-snug text-slate-300 sm:max-w-sm">
+              {previewMessage}
+            </p>
+            <p className="mt-2 text-[0.68rem] font-semibold uppercase leading-tight tracking-wider text-purple-200/80 sm:text-xs">
+              Real USDC payments on Monad Testnet
+            </p>
+            <div className="mt-4 inline-flex max-w-full items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-bold leading-none text-emerald-200 sm:mt-5">
+              <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-300" />
+              <span className="truncate">{previewBadge}</span>
             </div>
           </div>
           <iframe
@@ -498,11 +499,9 @@ function HomeContent() {
   useEffect(() => {
     currentEmbeddedWalletAddress.current = embeddedWalletAddress;
   }, [embeddedWalletAddress]);
-  // El aviso va sobre el video, así que solo entran los estados que piden
-  // atención y en el largo de una etiqueta. Los demás devuelven null: "listo
-  // para enviar" quedaría fijo encima del stream sin aportar nada, y la
-  // verificación de saldo dura menos de un segundo, así que un cartel que
-  // parpadea molesta más de lo que informa.
+  // Solo mostramos estados que piden atención. Los demás devuelven null:
+  // "listo para enviar" no aporta mucho, y la verificación de saldo dura menos
+  // de un segundo, así que un cartel que parpadea molesta más de lo que informa.
   const paymentNotice = (() => {
     if (transactionState.status === "awaiting-approval") {
       return {
@@ -1170,7 +1169,7 @@ function HomeContent() {
             los chips bajan al flujo, arriba y abajo del reproductor. */}
         <div className="relative">
           <div className="mb-2 flex items-center justify-between gap-2 sm:absolute sm:inset-x-3 sm:top-3 sm:z-30 sm:mb-0">
-            <div className="flex min-w-0 items-center gap-2 rounded-full border border-slate-700 bg-slate-950/80 py-1.5 pl-1.5 pr-3.5 backdrop-blur-sm">
+            <div className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-slate-700 bg-slate-950/80 py-1.5 pl-1.5 pr-3.5 backdrop-blur-sm sm:max-w-[60%]">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-amber-400 to-purple-500 text-xs font-black text-slate-950">
                 {demoCreator.displayName.slice(0, 1)}
               </div>
@@ -1179,9 +1178,9 @@ function HomeContent() {
               </span>
             </div>
 
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
               <span
-                className={`flex items-center gap-2 rounded-full border bg-slate-950/80 px-3 py-1.5 text-xs font-semibold backdrop-blur-sm ${
+                className={`flex min-h-9 items-center gap-1.5 rounded-full border bg-slate-950/80 px-2.5 py-1.5 text-xs font-semibold backdrop-blur-sm sm:gap-2 sm:px-3 ${
                   isLiveStreamMode
                     ? "border-emerald-700 text-emerald-300"
                     : "border-purple-400/30 text-purple-100"
@@ -1204,7 +1203,7 @@ function HomeContent() {
               <details className="relative">
                 <summary
                   aria-label="Transaction details"
-                  className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-full border border-slate-700 bg-slate-950/80 text-slate-300 backdrop-blur-sm transition-colors hover:text-white"
+                  className="flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-full border border-slate-700 bg-slate-950/80 text-slate-300 backdrop-blur-sm transition-colors hover:text-white"
                 >
                   <Info className="h-4 w-4" />
                 </summary>
@@ -1272,7 +1271,7 @@ function HomeContent() {
             <div
               role={paymentNotice.tone === "error" ? "alert" : "status"}
               aria-live={paymentNotice.tone === "error" ? "assertive" : "polite"}
-              className={`mt-2 rounded-xl border p-3 backdrop-blur-sm sm:absolute sm:bottom-3 sm:left-3 sm:mt-0 sm:max-w-[min(28rem,calc(100%-1.5rem))] ${
+              className={`mt-3 rounded-xl border p-3 backdrop-blur-sm sm:max-w-[28rem] ${
                 paymentNotice.tone === "success"
                   ? "border-emerald-600 bg-emerald-950/90"
                   : paymentNotice.tone === "error"
