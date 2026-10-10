@@ -15,6 +15,10 @@ import { AuthenticatedRoute } from "@/components/AuthenticatedRoute";
 import { AuthButton } from "@/components/AuthButton";
 import { FundWalletModal } from "@/components/FundWalletModal";
 import {
+  OnboardingTour,
+  type OnboardingTourStep,
+} from "@/components/OnboardingTour";
+import {
   ReactionConfirmationModal,
   type ConfirmationPhase,
 } from "@/components/ReactionConfirmationModal";
@@ -38,6 +42,13 @@ import {
   shouldApplyBalanceResponse,
   type PaymentBalanceCheckState,
 } from "@/lib/payment-balance";
+import {
+  getBrowserOnboardingTourStorage,
+  readOnboardingTourStatus,
+  shouldAutoStartOnboardingTour,
+  shouldStartManualOnboardingTour,
+  type OnboardingTourStoredStatus,
+} from "@/lib/onboarding-tour";
 import {
   createReceiveAuthorizationSigningMessage,
   createRelayDonationRequestPayload,
@@ -77,6 +88,45 @@ const VIEWER_SUCCESS_SOUND_VOLUME = 0.35;
 const AUDIO_WARNING_LOG_INTERVAL_MS = 30_000;
 const KICK_STATUS_POLL_INTERVAL_MS = 45_000;
 const BALANCE_REFRESH_INTERVAL_MS = 25_000;
+
+const ONBOARDING_TOUR_STEPS: OnboardingTourStep[] = [
+  {
+    id: "welcome",
+    selector: '[data-tour="stream-preview"]',
+    title: "Welcome to EmotePay",
+    body: "Watch the live stream here. If the creator is offline, this area becomes a safe reaction demo.",
+  },
+  {
+    id: "reaction-price",
+    selector: '[data-tour="reaction-card"]',
+    title: "Choose a reaction",
+    body: "Each card shows the exact USDC price before anything is sent. Pick one when you want to react.",
+  },
+  {
+    id: "balance",
+    selector: '[data-tour="usdc-balance"]',
+    title: "Check your balance",
+    body: "This is your real test USDC balance on Monad. EmotePay refreshes it after funding and donations.",
+  },
+  {
+    id: "fund-wallet",
+    selector: '[data-tour="fund-wallet"]',
+    title: "Add test USDC",
+    body: "Use Fund Wallet when you need test USDC. You do not need MON because gas is sponsored.",
+  },
+  {
+    id: "confirm",
+    selector: '[data-tour="reaction-grid"]',
+    title: "Review before sending",
+    body: "After you choose a reaction, EmotePay shows a confirmation screen. The tour never opens it or signs for you.",
+  },
+  {
+    id: "watch",
+    selector: '[data-tour="stream-preview"]',
+    title: "Watch it appear",
+    body: "Once Monad confirms the payment, your reaction appears in the stream or the offline preview.",
+  },
+];
 
 type TransactionState =
   | { status: "idle" }
@@ -271,6 +321,7 @@ function KickStreamPlayer({
 
   return (
     <div
+      data-tour="stream-preview"
       className={`relative w-full overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl ${
         showKickIframe
           ? "aspect-video"
@@ -382,7 +433,11 @@ function UsdcBalanceIndicator({
 
   if (!walletsReady || !embeddedWalletAddress || balanceCheck.status === "idle") {
     return (
-      <div className={baseClassName} aria-label="USDC balance loading">
+      <div
+        data-tour="usdc-balance"
+        className={baseClassName}
+        aria-label="USDC balance loading"
+      >
         <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-300" />
         <span className="hidden sm:inline">USDC</span>
       </div>
@@ -391,7 +446,11 @@ function UsdcBalanceIndicator({
 
   if (balanceCheck.status === "checking") {
     return (
-      <div className={baseClassName} aria-label="USDC balance loading">
+      <div
+        data-tour="usdc-balance"
+        className={baseClassName}
+        aria-label="USDC balance loading"
+      >
         <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-300" />
         <span className="hidden sm:inline">Checking</span>
       </div>
@@ -402,6 +461,7 @@ function UsdcBalanceIndicator({
     return (
       <button
         type="button"
+        data-tour="usdc-balance"
         onClick={onRetry}
         className={`${baseClassName} text-amber-100 transition-colors hover:border-amber-400/50 hover:text-white`}
         aria-label="Retry USDC balance check"
@@ -421,6 +481,7 @@ function UsdcBalanceIndicator({
 
   return (
     <div
+      data-tour="usdc-balance"
       className={`${baseClassName} min-w-0`}
       aria-label={`USDC balance ${balanceLabel}`}
       title={`${balanceLabel} USDC`}
@@ -449,6 +510,11 @@ function HomeContent() {
     null,
   );
   const [isFundWalletOpen, setIsFundWalletOpen] = useState(false);
+  const [isOnboardingTourOpen, setIsOnboardingTourOpen] = useState(false);
+  const [onboardingTourStatus, setOnboardingTourStatus] =
+    useState<OnboardingTourStoredStatus | null>(null);
+  const [hasLoadedOnboardingTourStatus, setHasLoadedOnboardingTourStatus] =
+    useState(false);
   const [balanceRefreshNonce, setBalanceRefreshNonce] = useState(0);
   const [kickAutoState, setKickAutoState] = useState<KickAutoState>({
     status: kickStreamMode === "auto" ? "loading" : "unknown",
@@ -489,6 +555,10 @@ function HomeContent() {
     transactionState.status === "awaiting-approval" ||
     transactionState.status === "submitting" ||
     transactionState.status === "confirming";
+  const hasBlockingTourModal = Boolean(confirmation || isFundWalletOpen);
+  const isBalanceUiReady =
+    effectiveBalanceCheck.status !== "idle" &&
+    effectiveBalanceCheck.status !== "checking";
   const lastHash =
     transactionState.status === "confirming"
       ? transactionState.hash
@@ -499,6 +569,76 @@ function HomeContent() {
   useEffect(() => {
     currentEmbeddedWalletAddress.current = embeddedWalletAddress;
   }, [embeddedWalletAddress]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setOnboardingTourStatus(
+        readOnboardingTourStatus(getBrowserOnboardingTourStorage()),
+      );
+      setHasLoadedOnboardingTourStatus(true);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (
+      !hasLoadedOnboardingTourStatus ||
+      isOnboardingTourOpen ||
+      !shouldAutoStartOnboardingTour({
+        authReady: ready,
+        authenticated,
+        walletsReady,
+        hasEmbeddedWallet: Boolean(embeddedWallet),
+        balanceReady: isBalanceUiReady,
+        isActivePayment,
+        hasBlockingModal: hasBlockingTourModal,
+        storedStatus: onboardingTourStatus,
+      })
+    ) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setIsOnboardingTourOpen(true);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    authenticated,
+    embeddedWallet,
+    hasBlockingTourModal,
+    hasLoadedOnboardingTourStatus,
+    isActivePayment,
+    isBalanceUiReady,
+    isOnboardingTourOpen,
+    onboardingTourStatus,
+    ready,
+    walletsReady,
+  ]);
+
+  useEffect(() => {
+    if (!isOnboardingTourOpen || (!isActivePayment && !hasBlockingTourModal)) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setIsOnboardingTourOpen(false);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [hasBlockingTourModal, isActivePayment, isOnboardingTourOpen]);
+
+  const closeOnboardingTour = (status: OnboardingTourStoredStatus) => {
+    setIsOnboardingTourOpen(false);
+    setOnboardingTourStatus(status);
+  };
   // Solo mostramos estados que piden atención. Los demás devuelven null:
   // "listo para enviar" no aporta mucho, y la verificación de saldo dura menos
   // de un segundo, así que un cartel que parpadea molesta más de lo que informa.
@@ -1147,6 +1287,7 @@ function HomeContent() {
             {authenticated && (
               <button
                 type="button"
+                data-tour="fund-wallet"
                 onClick={() => setIsFundWalletOpen(true)}
                 disabled={!embeddedWalletAddress}
                 className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900 px-2.5 text-sm font-semibold text-slate-200 transition-colors hover:border-purple-500/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 sm:gap-2 sm:px-3"
@@ -1207,57 +1348,75 @@ function HomeContent() {
                 >
                   <Info className="h-4 w-4" />
                 </summary>
-                <dl className="absolute right-0 top-full z-40 mt-2 grid w-[min(20rem,calc(100vw-2rem))] grid-cols-1 gap-3 rounded-xl border border-slate-700 bg-slate-900/95 p-4 text-xs shadow-2xl backdrop-blur-sm">
-                  <div className="flex items-center justify-between gap-3">
-                    <dt className="text-slate-400">Network</dt>
-                    <dd className="text-slate-300">
-                      {monadTestnet.name} ({monadTestnet.id})
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <dt className="text-slate-400">Your wallet</dt>
-                    <dd className="font-mono text-slate-300">
-                      {shortenAddress(embeddedWalletAddress)}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <dt className="text-slate-400">Creator wallet</dt>
-                    <dd className="font-mono text-slate-300">
-                      {shortenAddress(demoCreator.walletAddress)}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <dt className="text-slate-400">Contract</dt>
-                    <dd className="font-mono text-slate-300">
-                      {shortenAddress(emotePayContract.address)}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <dt className="text-slate-400">USDC token</dt>
-                    <dd className="font-mono text-slate-300">
-                      {effectiveBalanceCheck.status === "ready"
-                        ? shortenAddress(effectiveBalanceCheck.usdcAddress)
-                        : "Pending check"}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <dt className="text-slate-400">Transaction</dt>
-                    <dd className="font-mono text-slate-300">
-                      {lastHash ? shortenAddress(lastHash) : "Pending send"}
-                    </dd>
-                  </div>
-                  {lastHash && (
-                    <a
-                      href={getExplorerTransactionUrl(lastHash)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-purple-300 hover:text-purple-200"
-                    >
-                      View on Monad explorer
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
-                  )}
-                </dl>
+                <div className="absolute right-0 top-full z-40 mt-2 w-[min(20rem,calc(100vw-2rem))] rounded-xl border border-slate-700 bg-slate-900/95 p-4 text-xs shadow-2xl backdrop-blur-sm">
+                  <dl className="grid grid-cols-1 gap-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <dt className="text-slate-400">Network</dt>
+                      <dd className="text-slate-300">
+                        {monadTestnet.name} ({monadTestnet.id})
+                      </dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <dt className="text-slate-400">Your wallet</dt>
+                      <dd className="font-mono text-slate-300">
+                        {shortenAddress(embeddedWalletAddress)}
+                      </dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <dt className="text-slate-400">Creator wallet</dt>
+                      <dd className="font-mono text-slate-300">
+                        {shortenAddress(demoCreator.walletAddress)}
+                      </dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <dt className="text-slate-400">Contract</dt>
+                      <dd className="font-mono text-slate-300">
+                        {shortenAddress(emotePayContract.address)}
+                      </dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <dt className="text-slate-400">USDC token</dt>
+                      <dd className="font-mono text-slate-300">
+                        {effectiveBalanceCheck.status === "ready"
+                          ? shortenAddress(effectiveBalanceCheck.usdcAddress)
+                          : "Pending check"}
+                      </dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <dt className="text-slate-400">Transaction</dt>
+                      <dd className="font-mono text-slate-300">
+                        {lastHash ? shortenAddress(lastHash) : "Pending send"}
+                      </dd>
+                    </div>
+                    {lastHash && (
+                      <a
+                        href={getExplorerTransactionUrl(lastHash)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-purple-300 hover:text-purple-200"
+                      >
+                        View on Monad explorer
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                  </dl>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (
+                        shouldStartManualOnboardingTour({
+                          isActivePayment,
+                          hasBlockingModal: hasBlockingTourModal,
+                        })
+                      ) {
+                        setIsOnboardingTourOpen(true);
+                      }
+                    }}
+                    className="mt-3 inline-flex min-h-10 w-full items-center justify-center rounded-xl border border-purple-400/30 bg-purple-400/10 px-3 text-xs font-bold text-purple-100 transition-colors hover:border-purple-300 hover:text-white"
+                  >
+                    Show tour
+                  </button>
+                </div>
               </details>
             </div>
           </div>
@@ -1308,7 +1467,10 @@ function HomeContent() {
           )}
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div
+          data-tour="reaction-grid"
+          className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4"
+        >
           {EMOTES.map((emote) => {
             const isSending = isActivePayment && selectedEmote.id === emote.id;
             const [amountValue, amountUnit] = emote.displayAmount.split(" ");
@@ -1317,6 +1479,9 @@ function HomeContent() {
               <button
                 type="button"
                 key={emote.id}
+                data-tour={
+                  emote.id === selectedEmote.id ? "reaction-card" : undefined
+                }
                 onClick={() => handleSendReaction(emote)}
                 disabled={isActivePayment}
                 style={{
@@ -1398,6 +1563,12 @@ function HomeContent() {
           }}
         />
       )}
+
+      <OnboardingTour
+        open={isOnboardingTourOpen}
+        steps={ONBOARDING_TOUR_STEPS}
+        onClose={closeOnboardingTour}
+      />
     </main>
   );
 }
