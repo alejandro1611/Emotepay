@@ -11,9 +11,12 @@ import React, {
 } from "react";
 import {
   DEFAULT_LOCALE,
+  clearLanguageCookie,
+  clearStoredLanguage,
   getBrowserLanguageStorage,
   isSupportedLocale,
   readStoredLanguage,
+  resolveLocaleFromNavigator,
   writeLanguageCookie,
   writeStoredLanguage,
   type Locale,
@@ -37,20 +40,41 @@ type SetLocaleOptions = {
 type LanguageContextValue = {
   locale: Locale;
   t: Messages;
+  /**
+   * True when the user made an explicit language choice that is being
+   * persisted (or will be once storage is reachable). Drives the optional
+   * "use browser language" reset in settings.
+   */
+  hasManualPreference: boolean;
   setLocale: (locale: Locale, options?: SetLocaleOptions) => void;
+  /**
+   * Clears the saved manual preference (localStorage + cookie) and restores
+   * automatic detection from the browser language.
+   */
+  clearLocale: () => void;
 };
 
 const LanguageContext = createContext<LanguageContextValue | null>(null);
 
 export function LanguageProvider({
   initialLocale,
+  initialSavedPreference = false,
   children,
 }: {
   initialLocale: Locale;
+  /**
+   * Whether the server saw a valid language cookie for this request. Kept as
+   * a prop (instead of reading storage during render) so SSR and hydration
+   * agree; a localStorage-only preference is picked up after mount.
+   */
+  initialSavedPreference?: boolean;
   children: React.ReactNode;
 }) {
   const [locale, setLocaleState] = useState<Locale>(
     isSupportedLocale(initialLocale) ? initialLocale : DEFAULT_LOCALE,
+  );
+  const [hasManualPreference, setHasManualPreference] = useState(
+    initialSavedPreference,
   );
   // Set when an in-page override (?lang=) must beat the stored preference.
   const explicitOverride = useRef(false);
@@ -69,26 +93,43 @@ export function LanguageProvider({
       if (persist) {
         writeStoredLanguage(getBrowserLanguageStorage(), next);
         writeLanguageCookie(next);
+        setHasManualPreference(true);
       }
     },
     [],
   );
 
+  const clearLocale = useCallback(() => {
+    clearStoredLanguage(getBrowserLanguageStorage());
+    clearLanguageCookie();
+    explicitOverride.current = false;
+    setHasManualPreference(false);
+    setLocaleState(resolveLocaleFromNavigator() ?? DEFAULT_LOCALE);
+  }, []);
+
   // Applies the saved preference when it could not reach the server render
   // (e.g. the cookie was cleared but localStorage still has it) and re-syncs
-  // the cookie so the next SSR matches. Runs after children mount, so an
-  // explicit ?lang= override always wins.
+  // the cookie so the next SSR matches. Deferred to a macrotask so hydration
+  // finishes first; an explicit ?lang= override always wins.
   useEffect(() => {
-    if (explicitOverride.current) {
-      return;
-    }
+    const timeout = window.setTimeout(() => {
+      if (explicitOverride.current) {
+        return;
+      }
 
-    const stored = readStoredLanguage(getBrowserLanguageStorage());
+      const stored = readStoredLanguage(getBrowserLanguageStorage());
 
-    if (stored && stored !== initialLocaleRef.current) {
-      setLocaleState(stored);
-      writeLanguageCookie(stored);
-    }
+      if (stored) {
+        setHasManualPreference(true);
+
+        if (stored !== initialLocaleRef.current) {
+          setLocaleState(stored);
+          writeLanguageCookie(stored);
+        }
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timeout);
   }, []);
 
   // Keeps <html lang> in sync for assistive technology and SEO.
@@ -97,8 +138,14 @@ export function LanguageProvider({
   }, [locale]);
 
   const value = useMemo<LanguageContextValue>(
-    () => ({ locale, t: messages[locale], setLocale }),
-    [locale, setLocale],
+    () => ({
+      locale,
+      t: messages[locale],
+      hasManualPreference,
+      setLocale,
+      clearLocale,
+    }),
+    [locale, hasManualPreference, setLocale, clearLocale],
   );
 
   return (

@@ -12,9 +12,11 @@ const privyAppId = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
 export function Providers({
   children,
   initialLocale,
+  initialSavedPreference,
 }: {
   children: React.ReactNode;
   initialLocale: Locale;
+  initialSavedPreference?: boolean;
 }) {
   const pathname = usePathname();
   // The OBS overlay renders without Privy (no auth needed there), but it
@@ -54,7 +56,10 @@ export function Providers({
   }
 
   return (
-    <LanguageProvider initialLocale={initialLocale}>
+    <LanguageProvider
+      initialLocale={initialLocale}
+      initialSavedPreference={initialSavedPreference}
+    >
       {content}
     </LanguageProvider>
   );

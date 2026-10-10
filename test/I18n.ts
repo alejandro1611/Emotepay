@@ -5,6 +5,7 @@ import {
   DEFAULT_LOCALE,
   LANGUAGE_COOKIE_NAME,
   LANGUAGE_STORAGE_KEY,
+  clearStoredLanguage,
   normalizeLanguageParam,
   normalizeLocale,
   parseAcceptLanguage,
@@ -34,6 +35,9 @@ function createMemoryStorage(): LanguageStorage & {
     getItem: (key: string) => values.get(key) ?? null,
     setItem: (key: string, value: string) => {
       values.set(key, value);
+    },
+    removeItem: (key: string) => {
+      values.delete(key);
     },
   };
 }
@@ -198,10 +202,53 @@ describe("language preference persistence", function () {
       setItem: () => {
         throw new Error("blocked");
       },
+      removeItem: () => {
+        throw new Error("blocked");
+      },
     };
 
     assert.equal(readStoredLanguage(throwingStorage), null);
     writeStoredLanguage(throwingStorage, "es");
+    clearStoredLanguage(throwingStorage);
+  });
+
+  it("clears the saved preference so detection falls back to the browser", function () {
+    const storage = createMemoryStorage();
+    writeStoredLanguage(storage, "es");
+    assert.equal(readStoredLanguage(storage), "es");
+
+    clearStoredLanguage(storage);
+    assert.equal(readStoredLanguage(storage), null);
+    assert.equal(storage.values.has(LANGUAGE_STORAGE_KEY), false);
+
+    // After clearing, resolution behaves as if no manual preference exists:
+    // the browser language wins again.
+    assert.equal(
+      resolveInitialLocale({
+        storedLanguage: readStoredLanguage(storage),
+        acceptLanguage: "es-MX,es;q=0.9",
+      }),
+      "es",
+    );
+    assert.equal(
+      resolveInitialLocale({
+        storedLanguage: readStoredLanguage(storage),
+        acceptLanguage: "en-US",
+      }),
+      "en",
+    );
+  });
+
+  it("clearing is idempotent and safe without storage", function () {
+    const storage = createMemoryStorage();
+    clearStoredLanguage(storage);
+    clearStoredLanguage(null);
+    clearStoredLanguage(undefined);
+
+    writeStoredLanguage(storage, "en");
+    clearStoredLanguage(storage);
+    clearStoredLanguage(storage);
+    assert.equal(readStoredLanguage(storage), null);
   });
 });
 

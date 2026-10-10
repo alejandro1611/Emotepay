@@ -12,6 +12,7 @@ export const en = {
     switcherLabel: "Language",
     english: "English",
     spanish: "Spanish",
+    useBrowser: "Use browser language",
   },
   common: {
     close: "Close",
@@ -73,6 +74,7 @@ export const en = {
     openKick: "Open Kick",
     live: "Live",
     demo: "Demo",
+    creatorName: "Demo Creator",
     modeLabels: {
       liveOnKick: "Live on Kick",
       reactionDemo: "Reaction Demo",

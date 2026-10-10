@@ -14,6 +14,7 @@ export const es: Messages = {
     switcherLabel: "Idioma",
     english: "Inglés",
     spanish: "Español",
+    useBrowser: "Usar el idioma del navegador",
   },
   common: {
     close: "Cerrar",
@@ -60,7 +61,7 @@ export const es: Messages = {
     previewTitle: "Vista previa de reacciones en vivo",
     previewMessageChecking: "Verificando si el stream de Kick está en vivo.",
     previewMessageUnknown:
-      "El estado de Kick no está disponible; mostrando la demo de reacciones.",
+      "El estado de Kick no está disponible; mostrando la prueba de reacciones.",
     previewMessageDefault: "Envía una reacción para verla aquí.",
     badgeChecking: "Verificando Kick",
     badgeUnknown: "Estado desconocido",
@@ -73,10 +74,11 @@ export const es: Messages = {
     kickLive: "El modo en vivo usa el reproductor de Kick.",
     openKick: "Abrir Kick",
     live: "En vivo",
-    demo: "Demo",
+    demo: "Prueba",
+    creatorName: "Creador demo",
     modeLabels: {
       liveOnKick: "En vivo en Kick",
-      reactionDemo: "Demo de reacciones",
+      reactionDemo: "Prueba de reacciones",
       kickStatusStale: "Estado de Kick desactualizado",
       kickStatusUnknown: "Estado de Kick desconocido",
       checkingKick: "Verificando Kick",
@@ -164,7 +166,7 @@ export const es: Messages = {
     steps: {
       welcome: {
         title: "Bienvenido a EmotePay",
-        body: "Mira el stream en vivo aquí. Si el creador está desconectado, esta área se convierte en una demo segura de reacciones.",
+        body: "Mira el stream en vivo aquí. Si el creador está desconectado, esta área se convierte en una prueba segura de reacciones.",
       },
       reactionPrice: {
         title: "Elige una reacción",

@@ -430,7 +430,14 @@ function UsdcBalanceIndicator({
   );
 }
 function HomeContent() {
-  const { t } = useI18n();
+  const { t, hasManualPreference, clearLocale } = useI18n();
+  // The built-in demo name is UI copy, not a real streamer handle, so it
+  // localizes like any other string. A configured creator name passes
+  // through untouched.
+  const creatorDisplayName =
+    demoCreator.id === "demo-creator"
+      ? t.stream.creatorName
+      : demoCreator.displayName;
   const { ready, authenticated } = usePrivy();
   const { ready: walletsReady, wallets } = useWallets();
   const { signTypedData } = useSignTypedData();
@@ -1228,7 +1235,6 @@ function HomeContent() {
               <span className="w-2 h-2 rounded-full bg-emerald-400" />
               {t.common.testnet}
             </div>
-            <LanguageSwitcher />
             <UsdcBalanceIndicator
               authenticated={authenticated}
               walletsReady={walletsReady}
@@ -1266,10 +1272,10 @@ function HomeContent() {
           <div className="mb-2 flex items-center justify-between gap-2 sm:absolute sm:inset-x-3 sm:top-3 sm:z-30 sm:mb-0">
             <div className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-slate-700 bg-slate-950/80 py-1.5 pl-1.5 pr-3.5 backdrop-blur-sm sm:max-w-[60%]">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-amber-400 to-purple-500 text-xs font-black text-slate-950">
-                {demoCreator.displayName.slice(0, 1)}
+                {creatorDisplayName.slice(0, 1)}
               </div>
               <span className="truncate text-[13px] font-bold text-white">
-                {demoCreator.displayName}
+                {creatorDisplayName}
               </span>
             </div>
 
@@ -1378,6 +1384,21 @@ function HomeContent() {
                   >
                     {t.details.showTour}
                   </button>
+                  <div className="mt-3 border-t border-slate-700/60 pt-3">
+                    <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                      {t.language.switcherLabel}
+                    </p>
+                    <LanguageSwitcher />
+                    {hasManualPreference && (
+                      <button
+                        type="button"
+                        onClick={clearLocale}
+                        className="mt-2 inline-flex min-h-10 w-full items-center justify-center rounded-xl border border-slate-700 px-3 text-xs font-semibold text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
+                      >
+                        {t.language.useBrowser}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </details>
             </div>
@@ -1501,7 +1522,7 @@ function HomeContent() {
             confirmation.contractPrice,
             confirmation.usdcDecimals,
           )}
-          creatorName={demoCreator.displayName}
+          creatorName={creatorDisplayName}
           creatorAddress={demoCreator.walletAddress}
           contractAddress={emotePayContract.address}
           usdcAddress={confirmation.usdcAddress}

@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "./providers";
-import { getRequestLocale } from "@/lib/i18n/server";
+import { getRequestLocaleInfo } from "@/lib/i18n/server";
 import { getMessages } from "@/lib/i18n/messages";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const messages = getMessages(await getRequestLocale());
+  const { locale } = await getRequestLocaleInfo();
+  const messages = getMessages(locale);
 
   return {
     title: messages.metadata.title,
@@ -18,12 +19,17 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const locale = await getRequestLocale();
+  const { locale, hasSavedPreference } = await getRequestLocaleInfo();
 
   return (
     <html lang={locale}>
       <body>
-        <Providers initialLocale={locale}>{children}</Providers>
+        <Providers
+          initialLocale={locale}
+          initialSavedPreference={hasSavedPreference}
+        >
+          {children}
+        </Providers>
       </body>
     </html>
   );

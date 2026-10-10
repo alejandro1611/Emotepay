@@ -9,7 +9,10 @@ export const LANGUAGE_STORAGE_KEY = `emotepay:language:v${LANGUAGE_PREFERENCE_VE
 export const LANGUAGE_COOKIE_NAME = `emotepay_language_v${LANGUAGE_PREFERENCE_VERSION}`;
 export const LANGUAGE_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 
-export type LanguageStorage = Pick<Storage, "getItem" | "setItem">;
+export type LanguageStorage = Pick<
+  Storage,
+  "getItem" | "setItem" | "removeItem"
+>;
 
 export function isSupportedLocale(value: string | null | undefined): value is Locale {
   return value === "en" || value === "es";
@@ -127,6 +130,20 @@ export function writeStoredLanguage(
   }
 }
 
+export function clearStoredLanguage(
+  storage: LanguageStorage | null | undefined,
+) {
+  if (!storage) {
+    return;
+  }
+
+  try {
+    storage.removeItem(LANGUAGE_STORAGE_KEY);
+  } catch {
+    // Clearing must keep working when localStorage is blocked.
+  }
+}
+
 export function getBrowserLanguageStorage(): LanguageStorage | null {
   if (typeof window === "undefined") {
     return null;
@@ -175,4 +192,12 @@ export function writeLanguageCookie(locale: Locale) {
   }
 
   document.cookie = `${LANGUAGE_COOKIE_NAME}=${locale};path=/;max-age=${LANGUAGE_COOKIE_MAX_AGE_SECONDS};samesite=lax`;
+}
+
+export function clearLanguageCookie() {
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  document.cookie = `${LANGUAGE_COOKIE_NAME}=;path=/;max-age=0;samesite=lax`;
 }
