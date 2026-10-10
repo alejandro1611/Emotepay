@@ -75,3 +75,12 @@ Expected:
 ## Cloud
 
 Deploy after authenticating with Envio Cloud and connecting the repository. Do not commit real `.env` values.
+
+## Envio Cloud deployment
+
+The EmotePay indexer is configured for Envio Cloud using:
+- Git release branch: `main`
+- Indexer directory: `indexer`
+- Configuration file: `config.yaml`
+
+Deployments index EmotePay V3 donation events on Monad Testnet.
