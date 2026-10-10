@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Copy, ExternalLink, X } from "lucide-react";
 import type { Address } from "viem";
 import Image from "next/image";
+import { useI18n } from "@/components/LanguageProvider";
 
 const CIRCLE_FAUCET_URL = "https://faucet.circle.com";
 
@@ -65,6 +66,7 @@ export function FundWalletModal({
   networkName,
   onDismiss,
 }: FundWalletModalProps) {
+  const { t } = useI18n();
   const dialogRef = useRef<HTMLDivElement>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
 
@@ -111,7 +113,7 @@ export function FundWalletModal({
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
       <button
         type="button"
-        aria-label="Close fund wallet modal"
+        aria-label={t.fund.modal.closeAria}
         onClick={onDismiss}
         className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
       />
@@ -127,7 +129,7 @@ export function FundWalletModal({
           type="button"
           onClick={onDismiss}
           className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-xl border border-slate-800 bg-slate-950/70 text-slate-400 transition-colors hover:border-slate-700 hover:text-white"
-          aria-label="Close"
+          aria-label={t.common.close}
         >
           <X className="h-4 w-4" />
         </button>
@@ -143,17 +145,17 @@ export function FundWalletModal({
           </div>
           <div>
             <h2 id="fund-wallet-title" className="text-xl font-black text-white">
-              Fund your wallet
+              {t.fund.modal.title}
             </h2>
             <p className="mt-1 text-sm text-slate-400">
-              Your EmotePay wallet needs test USDC on Monad Testnet.
+              {t.fund.modal.subtitle}
             </p>
           </div>
         </div>
 
         <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950/70 p-4">
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-            Embedded wallet
+            {t.fund.modal.embeddedWallet}
           </p>
           <p className="mt-2 font-mono text-sm font-semibold text-white">
             {shortenAddress(walletAddress)}
@@ -171,27 +173,27 @@ export function FundWalletModal({
             ) : (
               <Copy className="h-4 w-4 text-purple-300" />
             )}
-            {copyState === "copied" ? "Copied" : "Copy address"}
+            {copyState === "copied" ? t.common.copied : t.common.copyAddress}
           </button>
         </div>
 
         <dl className="mt-4 grid gap-2 text-sm">
           <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3">
-            <dt className="text-slate-400">Network</dt>
+            <dt className="text-slate-400">{t.common.network}</dt>
             <dd className="font-semibold text-white">{networkName}</dd>
           </div>
           <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3">
-            <dt className="text-slate-400">Asset needed</dt>
-            <dd className="font-semibold text-white">Test USDC</dd>
+            <dt className="text-slate-400">{t.fund.modal.assetNeeded}</dt>
+            <dd className="font-semibold text-white">{t.fund.modal.testUsdc}</dd>
           </div>
           <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
-            <dt className="text-emerald-100/80">Gas</dt>
-            <dd className="font-semibold text-emerald-300">Sponsored</dd>
+            <dt className="text-emerald-100/80">{t.common.gas}</dt>
+            <dd className="font-semibold text-emerald-300">{t.common.sponsored}</dd>
           </div>
         </dl>
 
         <p className="mt-4 rounded-xl border border-purple-400/20 bg-purple-400/10 p-3 text-sm text-purple-100">
-          You do not need MON to send reactions.
+          {t.fund.modal.noMonNeeded}
         </p>
 
         <div className="mt-5 grid gap-2 sm:grid-cols-2">
@@ -201,7 +203,7 @@ export function FundWalletModal({
             rel="noreferrer"
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-purple-600 px-4 py-3 text-sm font-bold text-white shadow-lg transition-colors hover:bg-purple-500"
           >
-            Open Circle Faucet
+            {t.fund.modal.openFaucet}
             <ExternalLink className="h-4 w-4" />
           </a>
           <button
@@ -210,7 +212,7 @@ export function FundWalletModal({
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm font-bold text-slate-200 transition-colors hover:border-purple-400 hover:text-white"
           >
             <Copy className="h-4 w-4" />
-            Copy address
+            {t.common.copyAddress}
           </button>
         </div>
       </div>

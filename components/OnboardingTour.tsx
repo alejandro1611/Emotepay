@@ -11,6 +11,7 @@ import {
   type OnboardingTourStoredStatus,
   type TourTooltipPosition,
 } from "@/lib/onboarding-tour";
+import { useI18n } from "@/components/LanguageProvider";
 
 export type OnboardingTourStep = {
   id: string;
@@ -52,6 +53,7 @@ export function OnboardingTour({
   steps,
   onClose,
 }: OnboardingTourProps) {
+  const { t } = useI18n();
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -247,13 +249,13 @@ export function OnboardingTour({
       >
         <div className="flex items-start justify-between gap-3">
           <p className="rounded-full border border-purple-400/30 bg-purple-400/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-purple-100">
-            Step {progressPosition} of {progressTotal}
+            {t.tour.progress(progressPosition, progressTotal)}
           </p>
           <button
             type="button"
             onClick={() => close("skipped")}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-700 bg-slate-950/70 text-slate-400 transition-colors hover:text-white"
-            aria-label="Skip tutorial"
+            aria-label={t.tour.skipAria}
           >
             <X className="h-4 w-4" />
           </button>
@@ -290,7 +292,7 @@ export function OnboardingTour({
             className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-slate-700 px-3 text-sm font-semibold text-slate-300 transition-colors hover:border-slate-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
           >
             <ChevronLeft className="h-4 w-4" />
-            Previous
+            {t.tour.previous}
           </button>
 
           {isLastStep ? (
@@ -299,7 +301,7 @@ export function OnboardingTour({
               onClick={() => close("completed")}
               className="inline-flex min-h-11 items-center justify-center rounded-xl bg-purple-600 px-4 text-sm font-bold text-white transition-colors hover:bg-purple-500"
             >
-              Finish
+              {t.tour.finish}
             </button>
           ) : (
             <button
@@ -307,7 +309,7 @@ export function OnboardingTour({
               onClick={() => goToRelativeStep(1)}
               className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-purple-600 px-4 text-sm font-bold text-white transition-colors hover:bg-purple-500"
             >
-              Next
+              {t.tour.next}
               <ChevronRight className="h-4 w-4" />
             </button>
           )}
@@ -318,7 +320,7 @@ export function OnboardingTour({
           onClick={() => close("skipped")}
           className="mt-2 w-full rounded-xl px-3 py-2 text-sm font-semibold text-slate-400 transition-colors hover:text-white"
         >
-          Skip tour
+          {t.tour.skip}
         </button>
       </div>
     </div>

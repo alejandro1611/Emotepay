@@ -1,21 +1,35 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "./providers";
+import { getRequestLocaleInfo } from "@/lib/i18n/server";
+import { getMessages } from "@/lib/i18n/messages";
 
-export const metadata: Metadata = {
-  title: "EmotePay - Frictionless Social Payments",
-  description: "Instant social tipping for streamers on Monad",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { locale } = await getRequestLocaleInfo();
+  const messages = getMessages(locale);
 
-export default function RootLayout({
+  return {
+    title: messages.metadata.title,
+    description: messages.metadata.description,
+  };
+}
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const { locale, hasSavedPreference } = await getRequestLocaleInfo();
+
   return (
-    <html lang="en">
+    <html lang={locale}>
       <body>
-        <Providers>{children}</Providers>
+        <Providers
+          initialLocale={locale}
+          initialSavedPreference={hasSavedPreference}
+        >
+          {children}
+        </Providers>
       </body>
     </html>
   );

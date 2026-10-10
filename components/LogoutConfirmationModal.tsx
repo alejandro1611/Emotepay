@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { Loader2, LogOut } from "lucide-react";
+import { useI18n } from "@/components/LanguageProvider";
 
 type LogoutConfirmationModalProps = {
   isLoggingOut: boolean;
@@ -16,6 +17,8 @@ export function LogoutConfirmationModal({
   onCancel,
   onConfirm,
 }: LogoutConfirmationModalProps) {
+  const { t } = useI18n();
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !isLoggingOut) {
@@ -53,13 +56,13 @@ export function LogoutConfirmationModal({
           </div>
           <div>
             <h2 id="logout-title" className="text-lg font-black">
-              Cerrar sesión
+              {t.auth.logoutTitle}
             </h2>
             <p
               id="logout-description"
               className="mt-1 text-sm leading-5 text-slate-300"
             >
-              ¿Seguro que querés cerrar sesión?
+              {t.auth.logoutQuestion}
             </p>
           </div>
         </div>
@@ -80,7 +83,7 @@ export function LogoutConfirmationModal({
             disabled={isLoggingOut}
             className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-700 px-4 text-sm font-semibold text-slate-200 transition hover:border-purple-400 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-purple-400 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Cancelar
+            {t.common.cancel}
           </button>
           <button
             type="button"
@@ -94,7 +97,7 @@ export function LogoutConfirmationModal({
                 aria-hidden="true"
               />
             )}
-            {isLoggingOut ? "Cerrando sesión..." : "Cerrar sesión"}
+            {isLoggingOut ? t.auth.loggingOut : t.auth.logOut}
           </button>
         </div>
       </section>

@@ -15,6 +15,8 @@ import { emotePayContract } from "@/lib/contracts";
 import { demoCreator } from "@/lib/creator";
 import { EMOTES, type Emote } from "@/lib/emotes";
 import { monadTestnet } from "@/lib/chains";
+import { useI18n } from "@/components/LanguageProvider";
+import { normalizeLanguageParam } from "@/lib/i18n/locale";
 
 const ALERT_DURATION_MS = 4400;
 const DONATION_POLL_INTERVAL_MS = 1_500;
@@ -185,10 +187,24 @@ async function playSound(src: string, volume: number) {
 }
 
 export default function OverlayPage() {
+  const { t, setLocale } = useI18n();
   const [{ activeDonation }, dispatch] = useReducer(overlayReducer, {
     activeDonation: null,
     queue: [],
   });
+
+  // OBS browser sources may not share storage with the viewer's browser, so
+  // an explicit ?lang=en|es override wins over any persisted preference and
+  // is never written back to storage.
+  useEffect(() => {
+    const locale = normalizeLanguageParam(
+      new URLSearchParams(window.location.search).get("lang"),
+    );
+
+    if (locale) {
+      setLocale(locale, { persist: false, override: true });
+    }
+  }, [setLocale]);
   const seenDonationIds = useRef(new Set<string>());
   const lastWatcherErrorLogAt = useRef(0);
   const lastAudioWarningLogAt = useRef(0);
@@ -373,11 +389,11 @@ export default function OverlayPage() {
     }
 
     if (!contractAddress) {
-      return "Overlay missing contract address";
+      return t.overlay.missingContract;
     }
 
-    return "Overlay missing creator address";
-  }, [contractAddress, isConfigured]);
+    return t.overlay.missingCreator;
+  }, [contractAddress, isConfigured, t]);
 
   return (
     <main className="fixed inset-0 overflow-hidden bg-transparent text-white">
@@ -418,7 +434,7 @@ export default function OverlayPage() {
                 {getFormattedAmount(activeDonation.amount)}
               </div>
               <div className="mt-3 text-[clamp(0.9rem,2.6vw,1.25rem)] font-semibold text-cyan-100">
-                from {shortenAddress(activeDonation.donor)}
+                {t.overlay.from(shortenAddress(activeDonation.donor))}
               </div>
             </motion.div>
           </motion.section>

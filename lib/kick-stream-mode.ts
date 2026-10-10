@@ -23,7 +23,14 @@ export function getResolvedKickStreamMode({
   return autoStatus === "live" ? "live" : "offline";
 }
 
-export function getKickModeLabel({
+export type KickModeLabelKey =
+  | "liveOnKick"
+  | "reactionDemo"
+  | "kickStatusStale"
+  | "kickStatusUnknown"
+  | "checkingKick";
+
+export function getKickModeLabelKey({
   configuredMode,
   autoStatus,
   stale,
@@ -31,26 +38,26 @@ export function getKickModeLabel({
   configuredMode: KickStreamMode;
   autoStatus: KickAutoStatus;
   stale: boolean;
-}) {
+}): KickModeLabelKey {
   if (configuredMode === "live") {
-    return "Live on Kick";
+    return "liveOnKick";
   }
 
   if (configuredMode === "offline") {
-    return "Reaction Demo";
+    return "reactionDemo";
   }
 
   if (autoStatus === "live") {
-    return stale ? "Live on Kick" : "Live on Kick";
+    return "liveOnKick";
   }
 
   if (autoStatus === "offline") {
-    return stale ? "Kick status stale" : "Reaction Demo";
+    return stale ? "kickStatusStale" : "reactionDemo";
   }
 
   if (autoStatus === "unknown") {
-    return "Kick status unknown";
+    return "kickStatusUnknown";
   }
 
-  return "Checking Kick";
+  return "checkingKick";
 }

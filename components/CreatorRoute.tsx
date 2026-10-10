@@ -7,9 +7,11 @@ import { useRouter } from "next/navigation";
 
 import { demoCreator } from "@/lib/creator";
 import { isCreatorPrivyUser } from "@/lib/creator-identity";
+import { useI18n } from "@/components/LanguageProvider";
 
 export function CreatorRoute({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const { t } = useI18n();
   const { ready, authenticated, user } = usePrivy();
   const isCreator =
     ready &&
@@ -43,7 +45,7 @@ export function CreatorRoute({ children }: { children: React.ReactNode }) {
             className="h-4 w-4 animate-spin text-purple-300 motion-reduce:animate-none"
             aria-hidden="true"
           />
-          Verificando acceso de creador...
+          {t.auth.route.verifyingCreator}
         </div>
       </main>
     );
