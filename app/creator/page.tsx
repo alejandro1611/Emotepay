@@ -107,6 +107,7 @@ function CreatorContent() {
     historyState.status === "ready" || historyState.status === "empty"
       ? historyState.history
       : null;
+  const hasLoadedHistory = history !== null;
   const totalReceived = history?.stats?.totalAmountReceived ?? "0";
   const totalDonations = history?.stats?.totalDonationsCount ?? 0;
   const uniqueDonors = history?.stats?.uniqueDonorsCount ?? 0;
@@ -140,28 +141,30 @@ function CreatorContent() {
           </div>
         </header>
 
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-lg border border-slate-800 bg-slate-900 p-5">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-              {t.creator.totalReceived}
+        {hasLoadedHistory && (
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border border-slate-800 bg-slate-900 p-5">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                {t.creator.totalReceived}
+              </div>
+              <div className="mt-2 text-2xl font-black">
+                {formatUsdcAmount(totalReceived)}
+              </div>
             </div>
-            <div className="mt-2 text-2xl font-black">
-              {formatUsdcAmount(totalReceived)}
+            <div className="rounded-lg border border-slate-800 bg-slate-900 p-5">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                {t.creator.donations}
+              </div>
+              <div className="mt-2 text-2xl font-black">{totalDonations}</div>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-900 p-5">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                {t.creator.uniqueDonors}
+              </div>
+              <div className="mt-2 text-2xl font-black">{uniqueDonors}</div>
             </div>
           </div>
-          <div className="rounded-lg border border-slate-800 bg-slate-900 p-5">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-              {t.creator.donations}
-            </div>
-            <div className="mt-2 text-2xl font-black">{totalDonations}</div>
-          </div>
-          <div className="rounded-lg border border-slate-800 bg-slate-900 p-5">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-              {t.creator.uniqueDonors}
-            </div>
-            <div className="mt-2 text-2xl font-black">{uniqueDonors}</div>
-          </div>
-        </div>
+        )}
 
         {historyState.status === "loading" && (
           <div className="rounded-lg border border-slate-800 bg-slate-900 p-6 text-sm text-slate-300">

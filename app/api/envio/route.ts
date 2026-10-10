@@ -11,6 +11,11 @@ import type {
 } from "@/lib/envio";
 import { requireCreatorAuthorization } from "@/lib/creator-authorization";
 import { demoCreator } from "@/lib/creator";
+import {
+  getEnvioGraphqlHeaders,
+  getEnvioServerConfig,
+  type EnvioServerConfig,
+} from "@/lib/envio-server-config";
 
 export const dynamic = "force-dynamic";
 
@@ -32,17 +37,6 @@ type RecentDonationsData = {
   Donation?: EnvioDonation[];
 };
 
-function getEnvioServerConfig() {
-  const graphqlUrl = process.env.ENVIO_GRAPHQL_URL?.trim();
-  const adminSecret = process.env.ENVIO_GRAPHQL_ADMIN_SECRET?.trim();
-
-  if (!graphqlUrl || !adminSecret) {
-    return null;
-  }
-
-  return { graphqlUrl, adminSecret };
-}
-
 function getLimit(value: unknown) {
   if (typeof value !== "number" || !Number.isInteger(value)) {
     return 20;
@@ -59,19 +53,16 @@ async function fetchEnvioGraphql<TData>({
   query,
   variables,
   graphqlUrl,
-  adminSecret,
+  config,
 }: {
   query: string;
   variables: Record<string, unknown>;
   graphqlUrl: string;
-  adminSecret: string;
+  config: Extract<EnvioServerConfig, { status: "ready" }>;
 }) {
   const response = await fetch(graphqlUrl, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-hasura-admin-secret": adminSecret,
-    },
+    headers: getEnvioGraphqlHeaders(config),
     body: JSON.stringify({ query, variables }),
     cache: "no-store",
   });
@@ -116,9 +107,9 @@ export async function POST(request: Request) {
   }
 
   const envioConfig = getEnvioServerConfig();
-  if (!envioConfig) {
+  if (envioConfig.status !== "ready") {
     return NextResponse.json(
-      { error: "Envio GraphQL server configuration is missing." },
+      { error: envioConfig.reason },
       { status: 503 },
     );
   }
@@ -155,12 +146,14 @@ export async function POST(request: Request) {
 
     const [creatorStatsData, recentDonationsData] = await Promise.all([
       fetchEnvioGraphql<CreatorStatsData>({
-        ...envioConfig,
+        graphqlUrl: envioConfig.graphqlUrl,
+        config: envioConfig,
         query: creatorStatsQuery,
         variables: { creator: demoCreator.walletAddress.toLowerCase() },
       }),
       fetchEnvioGraphql<RecentDonationsData>({
-        ...envioConfig,
+        graphqlUrl: envioConfig.graphqlUrl,
+        config: envioConfig,
         query: recentDonationsQuery,
         variables: { creator: demoCreator.walletAddress.toLowerCase(), limit },
       }),
