@@ -4,9 +4,11 @@ import React, { useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import { usePrivy } from "@privy-io/react-auth";
 import { useRouter } from "next/navigation";
+import { useI18n } from "@/components/LanguageProvider";
 
 export function AuthenticatedRoute({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const { t } = useI18n();
   const { ready, authenticated } = usePrivy();
 
   useEffect(() => {
@@ -26,7 +28,7 @@ export function AuthenticatedRoute({ children }: { children: React.ReactNode }) 
             className="h-4 w-4 animate-spin text-purple-300 motion-reduce:animate-none"
             aria-hidden="true"
           />
-          Preparando EmotePay...
+          {t.auth.route.preparingApp}
         </div>
       </main>
     );

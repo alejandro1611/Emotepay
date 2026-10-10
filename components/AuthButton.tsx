@@ -5,9 +5,11 @@ import { LogIn, LogOut, Loader2 } from "lucide-react";
 import { usePrivy } from "@privy-io/react-auth";
 import { useRouter } from "next/navigation";
 import { LogoutConfirmationModal } from "@/components/LogoutConfirmationModal";
+import { useI18n } from "@/components/LanguageProvider";
 
 export function AuthButton() {
   const router = useRouter();
+  const { t } = useI18n();
   const { ready, authenticated, login, logout } = usePrivy();
   const [isConfirmingLogout, setIsConfirmingLogout] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -26,7 +28,7 @@ export function AuthButton() {
       router.replace("/login");
       router.refresh();
     } catch {
-      setLogoutError("No pudimos cerrar la sesión. Intentá nuevamente.");
+      setLogoutError(t.auth.logoutError);
       setIsLoggingOut(false);
     }
   }
@@ -37,7 +39,7 @@ export function AuthButton() {
         type="button"
         disabled
         className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-800 bg-slate-900 text-slate-500 transition-all"
-        aria-label="Loading auth"
+        aria-label={t.auth.loadingAuth}
       >
         <Loader2 className="h-4 w-4 animate-spin" />
       </button>
@@ -52,7 +54,7 @@ export function AuthButton() {
         className="flex h-11 shrink-0 items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-3 text-sm font-semibold text-slate-200 transition-all hover:border-purple-500/50 hover:text-white"
       >
         <LogIn className="h-4 w-4" />
-        Log in
+        {t.auth.logIn}
       </button>
     );
   }
@@ -67,8 +69,8 @@ export function AuthButton() {
           setIsConfirmingLogout(true);
         }}
         className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-800 bg-slate-900 text-slate-300 transition-all hover:border-purple-500/50 hover:text-white disabled:opacity-60"
-        aria-label="Cerrar sesión"
-        title="Cerrar sesión"
+        aria-label={t.auth.logOut}
+        title={t.auth.logOut}
       >
         <LogOut className="h-4 w-4" />
       </button>

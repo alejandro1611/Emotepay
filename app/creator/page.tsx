@@ -11,15 +11,19 @@ import {
 } from "@/lib/envio";
 import { EMOTES } from "@/lib/emotes";
 import { CreatorRoute } from "@/components/CreatorRoute";
+import { useI18n } from "@/components/LanguageProvider";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { usePrivy } from "@privy-io/react-auth";
+
+type HistoryErrorCode = "unconfigured" | "session" | "loadFailed";
 
 type HistoryState =
   | { status: "idle" }
   | { status: "loading" }
   | { status: "ready"; history: CreatorHistory }
   | { status: "empty"; history: CreatorHistory }
-  | { status: "unconfigured"; reason: string }
-  | { status: "error"; reason: string };
+  | { status: "unconfigured"; code: HistoryErrorCode }
+  | { status: "error"; code: HistoryErrorCode };
 
 const emotesByOnchainId = new Map(
   EMOTES.map((emote) => [BigInt(emote.onchainId).toString(), emote]),
@@ -37,21 +41,25 @@ function formatUsdcAmount(amount: string) {
   return `${trimmedFraction ? `${whole}.${trimmedFraction}` : whole} USDC`;
 }
 
-function getDonationTime(timestamp: string) {
-  const timestampSeconds = Number(timestamp);
-
-  if (!Number.isFinite(timestampSeconds) || timestampSeconds <= 0) {
-    return "Unknown time";
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(timestampSeconds * 1000));
-}
-
 function CreatorContent() {
+  const { t, locale } = useI18n();
   const { getAccessToken } = usePrivy();
+
+  const getDonationTime = useCallback(
+    (timestamp: string) => {
+      const timestampSeconds = Number(timestamp);
+
+      if (!Number.isFinite(timestampSeconds) || timestampSeconds <= 0) {
+        return t.creator.unknownTime;
+      }
+
+      return new Intl.DateTimeFormat(locale, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(new Date(timestampSeconds * 1000));
+    },
+    [locale, t],
+  );
   const [historyState, setHistoryState] = useState<HistoryState>({
     status: "idle",
   });
@@ -60,10 +68,7 @@ function CreatorContent() {
 
   const loadHistory = useCallback(async () => {
     if (!creatorAddress) {
-      setHistoryState({
-        status: "unconfigured",
-        reason: "Set NEXT_PUBLIC_CREATOR_WALLET_ADDRESS to view creator history.",
-      });
+      setHistoryState({ status: "unconfigured", code: "unconfigured" });
       return;
     }
 
@@ -73,10 +78,7 @@ function CreatorContent() {
       const accessToken = await getAccessToken();
 
       if (!accessToken) {
-        setHistoryState({
-          status: "error",
-          reason: "Creator session could not be verified.",
-        });
+        setHistoryState({ status: "error", code: "session" });
         return;
       }
 
@@ -92,13 +94,8 @@ function CreatorContent() {
           : { status: "empty", history },
       );
     } catch (error) {
-      setHistoryState({
-        status: "error",
-        reason:
-          error instanceof Error
-            ? error.message
-            : "Unable to load Envio donation history.",
-      });
+      console.error("Failed to load Envio donation history", error);
+      setHistoryState({ status: "error", code: "loadFailed" });
     }
   }, [creatorAddress, envioApiUrl, getAccessToken]);
 
@@ -123,27 +120,30 @@ function CreatorContent() {
           <div>
             <div className="mb-2 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-cyan-300">
               <BarChart3 className="h-4 w-4" />
-              Creator History
+              {t.creator.badge}
             </div>
             <h1 className="text-3xl font-bold tracking-tight">
-              EmotePay Donations
+              {t.creator.title}
             </h1>
           </div>
-          <button
-            type="button"
-            onClick={loadHistory}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-700 bg-slate-900 px-4 text-sm font-semibold text-slate-100 transition hover:border-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={historyState.status === "loading"}
-          >
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </button>
+          <div className="flex items-center gap-3">
+            <LanguageSwitcher />
+            <button
+              type="button"
+              onClick={loadHistory}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-700 bg-slate-900 px-4 text-sm font-semibold text-slate-100 transition hover:border-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={historyState.status === "loading"}
+            >
+              <RefreshCw className="h-4 w-4" />
+              {t.creator.refresh}
+            </button>
+          </div>
         </header>
 
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="rounded-lg border border-slate-800 bg-slate-900 p-5">
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-              Total Received
+              {t.creator.totalReceived}
             </div>
             <div className="mt-2 text-2xl font-black">
               {formatUsdcAmount(totalReceived)}
@@ -151,13 +151,13 @@ function CreatorContent() {
           </div>
           <div className="rounded-lg border border-slate-800 bg-slate-900 p-5">
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-              Donations
+              {t.creator.donations}
             </div>
             <div className="mt-2 text-2xl font-black">{totalDonations}</div>
           </div>
           <div className="rounded-lg border border-slate-800 bg-slate-900 p-5">
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-              Unique Donors
+              {t.creator.uniqueDonors}
             </div>
             <div className="mt-2 text-2xl font-black">{uniqueDonors}</div>
           </div>
@@ -165,30 +165,30 @@ function CreatorContent() {
 
         {historyState.status === "loading" && (
           <div className="rounded-lg border border-slate-800 bg-slate-900 p-6 text-sm text-slate-300">
-            Loading indexed donation history...
+            {t.creator.loading}
           </div>
         )}
 
         {(historyState.status === "unconfigured" ||
           historyState.status === "error") && (
           <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 p-6 text-sm text-amber-100">
-            {historyState.reason}
+            {t.creator.errors[historyState.code]}
           </div>
         )}
 
         {historyState.status === "empty" && (
           <div className="rounded-lg border border-slate-800 bg-slate-900 p-6 text-sm text-slate-300">
-            No indexed donations found for this creator yet.
+            {t.creator.empty}
           </div>
         )}
 
         {rows.length > 0 && (
           <section className="overflow-hidden rounded-lg border border-slate-800 bg-slate-900">
             <div className="grid grid-cols-[1fr_auto_auto] gap-3 border-b border-slate-800 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-400 sm:grid-cols-[1fr_1fr_1fr_1fr]">
-              <span>Donation</span>
-              <span>Donor</span>
-              <span className="hidden sm:block">Block</span>
-              <span>Tx</span>
+              <span>{t.creator.table.donation}</span>
+              <span>{t.creator.table.donor}</span>
+              <span className="hidden sm:block">{t.creator.table.block}</span>
+              <span>{t.creator.table.tx}</span>
             </div>
 
             <div className="divide-y divide-slate-800">
@@ -207,8 +207,11 @@ function CreatorContent() {
                           {formatUsdcAmount(donation.amount)}
                         </div>
                         <div className="truncate text-xs text-slate-400">
-                          {emote?.name ?? `Emote #${donation.emoteId}`} ·{" "}
-                          {getDonationTime(donation.timestamp)}
+                          {emote
+                            ? (t.emotes[emote.id as keyof typeof t.emotes] ??
+                              emote.name)
+                            : t.creator.unknownEmote(donation.emoteId)}{" "}
+                          · {getDonationTime(donation.timestamp)}
                         </div>
                       </div>
                     </div>

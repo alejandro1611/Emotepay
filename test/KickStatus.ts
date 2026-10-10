@@ -6,7 +6,7 @@ import {
   resetKickStatusCachesForTests,
 } from "../lib/kick-status";
 import {
-  getKickModeLabel,
+  getKickModeLabelKey,
   getResolvedKickStreamMode,
   normalizeKickStreamMode,
 } from "../lib/kick-stream-mode";
@@ -195,12 +195,12 @@ describe("Kick livestream status", function () {
       "offline",
     );
     assert.equal(
-      getKickModeLabel({
+      getKickModeLabelKey({
         configuredMode: "auto",
         autoStatus: "unknown",
         stale: false,
       }),
-      "Kick status unknown",
+      "kickStatusUnknown",
     );
   });
 });

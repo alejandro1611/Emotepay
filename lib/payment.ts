@@ -1,12 +1,19 @@
 import type { CreatorConfigurationStatus } from "@/lib/creator";
 import type { ContractConfigurationStatus } from "@/lib/contracts";
+import type { Messages } from "@/lib/i18n/messages";
+
+/**
+ * Stable readiness error codes. The UI maps them to translated messages so
+ * stored state retranslates when the language changes.
+ */
+export type PaymentReadinessErrorCode = keyof Messages["readiness"];
 
 export type PaymentState =
   | { status: "idle" }
   | { status: "ready" }
   | { status: "pending"; hash?: `0x${string}` }
   | { status: "success"; reference?: string }
-  | { status: "error"; reason: string };
+  | { status: "error"; code: PaymentReadinessErrorCode };
 
 type PaymentReadinessInput = {
   authReady: boolean;
@@ -42,42 +49,42 @@ export function getPaymentReadinessState({
   if (!hasEmbeddedWallet) {
     return {
       status: "error",
-      reason: "Embedded wallet is not ready.",
+      code: "embedded-wallet-not-ready",
     };
   }
 
   if (creatorStatus === "missing-wallet") {
     return {
       status: "error",
-      reason: "Creator wallet is not configured.",
+      code: "creator-wallet-missing",
     };
   }
 
   if (creatorStatus === "invalid-wallet") {
     return {
       status: "error",
-      reason: "Creator wallet configuration is invalid.",
+      code: "creator-wallet-invalid",
     };
   }
 
   if (contractStatus === "missing-address") {
     return {
       status: "error",
-      reason: "EmotePay contract address is not configured.",
+      code: "contract-missing",
     };
   }
 
   if (contractStatus === "invalid-address") {
     return {
       status: "error",
-      reason: "EmotePay contract address is invalid.",
+      code: "contract-invalid",
     };
   }
 
   if (isSelfDonation) {
     return {
       status: "error",
-      reason: "You can't send a reaction to yourself.",
+      code: "self-donation",
     };
   }
 

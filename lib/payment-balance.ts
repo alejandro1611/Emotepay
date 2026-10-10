@@ -1,7 +1,7 @@
 import type { Address } from "viem";
+import type { PaymentError } from "@/lib/payment-errors";
 
-export const INSUFFICIENT_USDC_REASON =
-  "Fund your embedded wallet to send this reaction.";
+export const INSUFFICIENT_USDC_ERROR_CODE = "insufficient-usdc" as const;
 
 export type PaymentBalanceSnapshot = {
   walletAddress: Address;
@@ -24,10 +24,10 @@ export type PaymentBalanceCheckState =
       checkedOnchainId?: number;
     }
   | PaymentBalanceReadyState
-  | (PaymentBalanceSnapshot & { status: "insufficient"; reason: string })
+  | (PaymentBalanceSnapshot & { status: "insufficient"; error: PaymentError })
   | {
       status: "error";
-      reason: string;
+      error: PaymentError;
       walletAddress?: Address;
       checkedOnchainId?: number;
     };
@@ -36,13 +36,13 @@ export function getPaymentBalanceCheckState(
   snapshot: PaymentBalanceSnapshot,
 ): PaymentBalanceReadyState | (PaymentBalanceSnapshot & {
   status: "insufficient";
-  reason: string;
+  error: PaymentError;
 }) {
   if (snapshot.usdcBalance < snapshot.contractPrice) {
     return {
       ...snapshot,
       status: "insufficient",
-      reason: INSUFFICIENT_USDC_REASON,
+      error: { code: INSUFFICIENT_USDC_ERROR_CODE },
     };
   }
 
@@ -64,10 +64,10 @@ export function isBalanceReadyForEmote(
   );
 }
 
-export function isInsufficientUsdcReason(reason: string) {
+export function isInsufficientUsdcError(code: string) {
   return (
-    reason === INSUFFICIENT_USDC_REASON ||
-    reason.startsWith("Your embedded wallet needs at least ")
+    code === INSUFFICIENT_USDC_ERROR_CODE ||
+    code === "insufficient-usdc-amount"
   );
 }
 

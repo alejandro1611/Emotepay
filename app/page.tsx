@@ -14,6 +14,8 @@ import { usePrivy, useSignTypedData, useWallets } from "@privy-io/react-auth";
 import { AuthenticatedRoute } from "@/components/AuthenticatedRoute";
 import { AuthButton } from "@/components/AuthButton";
 import { FundWalletModal } from "@/components/FundWalletModal";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { useI18n } from "@/components/LanguageProvider";
 import {
   OnboardingTour,
   type OnboardingTourStep,
@@ -29,7 +31,7 @@ import { getPrivyEmbeddedEvmWallet } from "@/lib/embedded-wallet";
 import { EMOTES, type Emote } from "@/lib/emotes";
 import type { KickStatusResponse } from "@/lib/kick-status";
 import {
-  getKickModeLabel,
+  getKickModeLabelKey,
   getResolvedKickStreamMode,
   normalizeKickStreamMode,
   type KickAutoStatus,
@@ -38,10 +40,17 @@ import { getPaymentReadinessState } from "@/lib/payment";
 import {
   formatTokenAmount,
   getPaymentBalanceCheckState,
-  isInsufficientUsdcReason,
+  isInsufficientUsdcError,
   shouldApplyBalanceResponse,
   type PaymentBalanceCheckState,
 } from "@/lib/payment-balance";
+import {
+  getRelayErrorCode,
+  getTransactionErrorCode,
+  paymentError,
+  renderPaymentError,
+  type PaymentError,
+} from "@/lib/payment-errors";
 import {
   getBrowserOnboardingTourStorage,
   readOnboardingTourStatus,
@@ -89,44 +98,16 @@ const AUDIO_WARNING_LOG_INTERVAL_MS = 30_000;
 const KICK_STATUS_POLL_INTERVAL_MS = 45_000;
 const BALANCE_REFRESH_INTERVAL_MS = 25_000;
 
-const ONBOARDING_TOUR_STEPS: OnboardingTourStep[] = [
-  {
-    id: "welcome",
-    selector: '[data-tour="stream-preview"]',
-    title: "Welcome to EmotePay",
-    body: "Watch the live stream here. If the creator is offline, this area becomes a safe reaction demo.",
-  },
-  {
-    id: "reaction-price",
-    selector: '[data-tour="reaction-card"]',
-    title: "Choose a reaction",
-    body: "Each card shows the exact USDC price before anything is sent. Pick one when you want to react.",
-  },
-  {
-    id: "balance",
-    selector: '[data-tour="usdc-balance"]',
-    title: "Check your balance",
-    body: "This is your real test USDC balance on Monad. EmotePay refreshes it after funding and donations.",
-  },
-  {
-    id: "fund-wallet",
-    selector: '[data-tour="fund-wallet"]',
-    title: "Add test USDC",
-    body: "Use Fund Wallet when you need test USDC. You do not need MON because gas is sponsored.",
-  },
-  {
-    id: "confirm",
-    selector: '[data-tour="reaction-grid"]',
-    title: "Review before sending",
-    body: "After you choose a reaction, EmotePay shows a confirmation screen. The tour never opens it or signs for you.",
-  },
-  {
-    id: "watch",
-    selector: '[data-tour="stream-preview"]',
-    title: "Watch it appear",
-    body: "Once Monad confirms the payment, your reaction appears in the stream or the offline preview.",
-  },
-];
+// Tour step ids double as keys into messages.tour.steps; selectors mark the
+// highlighted element. Titles/bodies are resolved per locale at render time.
+const ONBOARDING_TOUR_STEP_DEFS = [
+  { id: "welcome", selector: '[data-tour="stream-preview"]' },
+  { id: "reactionPrice", selector: '[data-tour="reaction-card"]' },
+  { id: "balance", selector: '[data-tour="usdc-balance"]' },
+  { id: "fundWallet", selector: '[data-tour="fund-wallet"]' },
+  { id: "confirm", selector: '[data-tour="reaction-grid"]' },
+  { id: "watch", selector: '[data-tour="stream-preview"]' },
+] as const;
 
 type TransactionState =
   | { status: "idle" }
@@ -134,7 +115,7 @@ type TransactionState =
   | { status: "submitting" }
   | { status: "confirming"; hash: `0x${string}` }
   | { status: "success"; reference: `0x${string}` }
-  | { status: "failure"; reason: string };
+  | { status: "failure"; error: PaymentError };
 
 type ReactionConfirmation = {
   phase: ConfirmationPhase;
@@ -142,8 +123,8 @@ type ReactionConfirmation = {
   usdcAddress: Address;
   usdcDecimals: number;
   contractPrice: bigint;
-  errorMessage?: string;
-  notice?: string;
+  error?: PaymentError;
+  notice?: "amount-changed";
 };
 
 type RelayDonationResponse =
@@ -154,6 +135,9 @@ type RelayDonationResponse =
     }
   | {
       error: string;
+      status?: "pending" | "unknown";
+      retryAfter?: number;
+      nonce?: Hex;
     };
 
 type KickAutoState = {
@@ -170,7 +154,7 @@ function getEmbeddedWallet(
 
 function shortenAddress(address?: string | null) {
   if (!address) {
-    return "Unavailable";
+    return null;
   }
 
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -180,56 +164,6 @@ async function playSound(src: string, volume: number) {
   const audio = new Audio(src);
   audio.volume = volume;
   await audio.play();
-}
-
-function getTransactionErrorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  const lowerMessage = message.toLowerCase();
-
-  if (
-    lowerMessage.includes("user rejected") ||
-    lowerMessage.includes("user denied") ||
-    lowerMessage.includes("rejected")
-  ) {
-    return "Cancelled. Nothing was sent.";
-  }
-
-  if (
-    lowerMessage.includes("insufficient") ||
-    lowerMessage.includes("exceeds balance")
-  ) {
-    return "Not enough USDC to send this reaction.";
-  }
-
-  if (lowerMessage.includes("revert")) {
-    return "Monad rejected the payment.";
-  }
-
-  if (
-    lowerMessage.includes("fetch") ||
-    lowerMessage.includes("network") ||
-    lowerMessage.includes("rpc")
-  ) {
-    return "Can't reach Monad. Check your connection.";
-  }
-
-  return "Could not send it. Try again.";
-}
-
-function getReadinessMessage(reason: string) {
-  if (reason.includes("Creator wallet")) {
-    return "This creator can't receive reactions yet.";
-  }
-
-  if (reason.includes("contract")) {
-    return "Payments aren't configured yet.";
-  }
-
-  if (reason.includes("Embedded wallet")) {
-    return "Your wallet is still getting ready.";
-  }
-
-  return reason;
 }
 
 function formatUsdcAmount(amount: bigint, decimals = 6) {
@@ -305,19 +239,20 @@ function KickStreamPlayer({
   resolvedMode: "live" | "offline";
   kickStatus: KickAutoState;
 }) {
+  const { t } = useI18n();
   const showKickIframe = resolvedMode === "live" && Boolean(kickPlayerUrl);
   const previewMessage =
     kickStreamMode === "auto" && kickStatus.status === "loading"
-      ? "Checking whether the Kick stream is live."
+      ? t.stream.previewMessageChecking
       : kickStreamMode === "auto" && kickStatus.status === "unknown"
-        ? "Kick status is unavailable; showing the reaction demo."
-        : "Send a reaction to see it appear here.";
+        ? t.stream.previewMessageUnknown
+        : t.stream.previewMessageDefault;
   const previewBadge =
     kickStreamMode === "auto" && kickStatus.status === "loading"
-      ? "Checking Kick"
+      ? t.stream.badgeChecking
       : kickStreamMode === "auto" && kickStatus.status === "unknown"
-        ? "Status unknown"
-        : "Waiting for reactions";
+        ? t.stream.badgeUnknown
+        : t.stream.badgeWaiting;
 
   return (
     <div
@@ -347,13 +282,13 @@ function KickStreamPlayer({
               </div>
             </div>
             <p className="mt-4 text-[clamp(1.35rem,6.2vw,1.875rem)] font-black leading-tight text-white sm:mt-5">
-              Live Reaction Preview
+              {t.stream.previewTitle}
             </p>
             <p className="mt-2 max-w-[18rem] text-[clamp(0.82rem,3.6vw,1rem)] font-medium leading-snug text-slate-300 sm:max-w-sm">
               {previewMessage}
             </p>
             <p className="mt-2 text-[0.68rem] font-semibold uppercase leading-tight tracking-wider text-purple-200/80 sm:text-xs">
-              Real USDC payments on Monad Testnet
+              {t.stream.poweredBy}
             </p>
             <div className="mt-4 inline-flex max-w-full items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-bold leading-none text-emerald-200 sm:mt-5">
               <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-300" />
@@ -362,7 +297,7 @@ function KickStreamPlayer({
           </div>
           <iframe
             src="/overlay?audio=0"
-            title="EmotePay live reaction overlay"
+            title={t.stream.overlayTitle}
             scrolling="no"
             className="pointer-events-none absolute inset-0 z-10 h-full w-full border-0 bg-transparent"
           />
@@ -373,7 +308,7 @@ function KickStreamPlayer({
         <>
           <iframe
             src={kickPlayerUrl}
-            title="Kick livestream"
+            title={t.stream.kickPlayerTitle}
             allow="autoplay; fullscreen; picture-in-picture"
             allowFullScreen
             // Abajo de unos 315px de ventana el reproductor de Kick no entra en
@@ -385,12 +320,10 @@ function KickStreamPlayer({
           <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-3 bg-gradient-to-t from-slate-950/90 via-slate-950/30 to-transparent p-3">
             <div className="min-w-0">
               <p className="text-xs font-semibold text-slate-200">
-                Stream preview
+                {t.stream.previewLabel}
               </p>
               <p className="hidden text-[11px] text-slate-400 sm:block">
-                {kickStatus.stale
-                  ? "Kick status is using cached data."
-                  : "Live mode is using the Kick player."}
+                {kickStatus.stale ? t.stream.kickStale : t.stream.kickLive}
               </p>
             </div>
             {kickChannelUrl && (
@@ -400,7 +333,7 @@ function KickStreamPlayer({
                 rel="noreferrer"
                 className="pointer-events-auto inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-700 bg-slate-950/85 px-3 py-1.5 text-xs font-semibold text-slate-200 transition-colors hover:border-purple-400 hover:text-white"
               >
-                Open Kick
+                {t.stream.openKick}
                 <ExternalLink className="h-3 w-3" />
               </a>
             )}
@@ -424,6 +357,8 @@ function UsdcBalanceIndicator({
   balanceCheck: PaymentBalanceCheckState;
   onRetry: () => void;
 }) {
+  const { t } = useI18n();
+
   if (!authenticated) {
     return null;
   }
@@ -436,7 +371,7 @@ function UsdcBalanceIndicator({
       <div
         data-tour="usdc-balance"
         className={baseClassName}
-        aria-label="USDC balance loading"
+        aria-label={t.balance.loadingAria}
       >
         <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-300" />
         <span className="hidden sm:inline">USDC</span>
@@ -449,10 +384,10 @@ function UsdcBalanceIndicator({
       <div
         data-tour="usdc-balance"
         className={baseClassName}
-        aria-label="USDC balance loading"
+        aria-label={t.balance.loadingAria}
       >
         <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-300" />
-        <span className="hidden sm:inline">Checking</span>
+        <span className="hidden sm:inline">{t.balance.checking}</span>
       </div>
     );
   }
@@ -464,10 +399,10 @@ function UsdcBalanceIndicator({
         data-tour="usdc-balance"
         onClick={onRetry}
         className={`${baseClassName} text-amber-100 transition-colors hover:border-amber-400/50 hover:text-white`}
-        aria-label="Retry USDC balance check"
+        aria-label={t.balance.retryAria}
       >
         <AlertCircle className="h-3.5 w-3.5 text-amber-300" />
-        <span>Retry</span>
+        <span>{t.balance.retry}</span>
       </button>
     );
   }
@@ -483,8 +418,8 @@ function UsdcBalanceIndicator({
     <div
       data-tour="usdc-balance"
       className={`${baseClassName} min-w-0`}
-      aria-label={`USDC balance ${balanceLabel}`}
-      title={`${balanceLabel} USDC`}
+      aria-label={t.balance.valueAria(balanceLabel)}
+      title={t.balance.title(balanceLabel)}
     >
       <Wallet className="h-3.5 w-3.5 shrink-0 text-purple-300" />
       <span className="min-w-0 max-w-[4.75rem] truncate tabular-nums sm:max-w-none">
@@ -495,6 +430,7 @@ function UsdcBalanceIndicator({
   );
 }
 function HomeContent() {
+  const { t } = useI18n();
   const { ready, authenticated } = usePrivy();
   const { ready: walletsReady, wallets } = useWallets();
   const { signTypedData } = useSignTypedData();
@@ -526,6 +462,16 @@ function HomeContent() {
   const currentEmbeddedWalletAddress = useRef<Address | undefined>(undefined);
 
   const embeddedWallet = useMemo(() => getEmbeddedWallet(wallets), [wallets]);
+  const onboardingTourSteps = useMemo<OnboardingTourStep[]>(
+    () =>
+      ONBOARDING_TOUR_STEP_DEFS.map((definition) => ({
+        id: definition.id,
+        selector: definition.selector,
+        title: t.tour.steps[definition.id].title,
+        body: t.tour.steps[definition.id].body,
+      })),
+    [t],
+  );
   const embeddedWalletAddress = embeddedWallet?.address as Address | undefined;
   const isSelfDonation =
     Boolean(embeddedWalletAddress && demoCreator.walletAddress) &&
@@ -546,11 +492,14 @@ function HomeContent() {
     autoStatus: kickAutoState.status,
   });
   const isLiveStreamMode = resolvedKickStreamMode === "live";
-  const kickModeLabel = getKickModeLabel({
-    configuredMode: kickStreamMode,
-    autoStatus: kickAutoState.status,
-    stale: kickAutoState.stale,
-  });
+  const kickModeLabel =
+    t.stream.modeLabels[
+      getKickModeLabelKey({
+        configuredMode: kickStreamMode,
+        autoStatus: kickAutoState.status,
+        stale: kickAutoState.stale,
+      })
+    ];
   const isActivePayment =
     transactionState.status === "awaiting-approval" ||
     transactionState.status === "submitting" ||
@@ -646,8 +595,8 @@ function HomeContent() {
     if (transactionState.status === "awaiting-approval") {
       return {
         tone: "active",
-        title: "Waiting for you",
-        body: "Sign the authorization in your wallet.",
+        title: t.notices.waitingTitle,
+        body: t.notices.waitingBody,
       };
     }
 
@@ -659,8 +608,8 @@ function HomeContent() {
     ) {
       return {
         tone: "active",
-        title: "Sending",
-        body: "Confirming on Monad.",
+        title: t.notices.sendingTitle,
+        body: t.notices.sendingBody,
       };
     }
 
@@ -668,8 +617,8 @@ function HomeContent() {
       if (showSuccessBanner) {
         return {
           tone: "success",
-          title: "Sent",
-          body: "Your reaction is live on the stream.",
+          title: t.notices.sentTitle,
+          body: t.notices.sentBody,
         };
       }
 
@@ -679,23 +628,23 @@ function HomeContent() {
     if (transactionState.status === "failure") {
       if (
         effectiveBalanceCheck.status === "ready" &&
-        isInsufficientUsdcReason(transactionState.reason)
+        isInsufficientUsdcError(transactionState.error.code)
       ) {
         return null;
       }
 
       return {
         tone: "error",
-        title: "Not sent",
-        body: transactionState.reason,
+        title: t.notices.notSentTitle,
+        body: renderPaymentError(t, transactionState.error),
       };
     }
 
     if (readinessState.status === "error") {
       return {
         tone: "error",
-        title: "Can't send",
-        body: getReadinessMessage(readinessState.reason),
+        title: t.notices.cantSendTitle,
+        body: t.readiness[readinessState.code],
       };
     }
 
@@ -704,16 +653,16 @@ function HomeContent() {
     if (effectiveBalanceCheck.status === "insufficient") {
       return {
         tone: "error",
-        title: "Not enough test USDC",
-        body: effectiveBalanceCheck.reason,
+        title: t.notices.insufficientTitle,
+        body: renderPaymentError(t, effectiveBalanceCheck.error),
       };
     }
 
     if (effectiveBalanceCheck.status === "error") {
       return {
         tone: "error",
-        title: "Can't check your wallet",
-        body: effectiveBalanceCheck.reason,
+        title: t.notices.balanceErrorTitle,
+        body: renderPaymentError(t, effectiveBalanceCheck.error),
       };
     }
 
@@ -856,7 +805,7 @@ function HomeContent() {
             walletAddress: donorAddress,
             checkedOnchainId: selectedEmote.onchainId,
             // El título del aviso ya dice qué falló: acá va qué hacer.
-            reason: "Try again in a moment.",
+            error: paymentError("balance-check-failed"),
           });
         }
       }
@@ -944,14 +893,15 @@ function HomeContent() {
     if (readinessState.status !== "ready") {
       setTransactionState({
         status: "failure",
-        reason:
+        error: paymentError(
           readinessState.status === "error"
-            ? getReadinessMessage(readinessState.reason)
+            ? readinessState.code
             : // Sin sesión la readiness es "idle", no "error", así que este
               // caso hay que nombrarlo acá o cae en un genérico inútil.
               !authenticated
-              ? "Sign in to send a reaction."
-              : "This reaction isn't ready yet.",
+              ? "sign-in-required"
+              : "reaction-not-ready",
+        ),
       });
       return;
     }
@@ -959,7 +909,7 @@ function HomeContent() {
     if (!embeddedWallet || !demoCreator.walletAddress || !emotePayContract.address) {
       setTransactionState({
         status: "failure",
-        reason: "This payment page is not configured yet.",
+        error: paymentError("page-not-configured"),
       });
       return;
     }
@@ -998,11 +948,11 @@ function HomeContent() {
         status: "error",
         walletAddress: donorAddress,
         checkedOnchainId: emote.onchainId,
-        reason: "Try again in a moment.",
+        error: paymentError("balance-check-failed"),
       });
       setTransactionState({
         status: "failure",
-        reason: "Try again in a moment.",
+        error: paymentError("balance-check-failed"),
       });
       return;
     }
@@ -1029,7 +979,7 @@ function HomeContent() {
     if (nextBalanceCheck.status === "insufficient") {
       setTransactionState({
         status: "failure",
-        reason: nextBalanceCheck.reason,
+        error: nextBalanceCheck.error,
       });
       return;
     }
@@ -1054,9 +1004,9 @@ function HomeContent() {
     }
 
     if (!embeddedWallet || !demoCreator.walletAddress || !emotePayContract.address) {
-      const reason = "This payment page is not configured yet.";
-      setTransactionState({ status: "failure", reason });
-      setConfirmation({ ...pending, phase: "failed", errorMessage: reason });
+      const error = paymentError("page-not-configured");
+      setTransactionState({ status: "failure", error });
+      setConfirmation({ ...pending, phase: "failed", error });
       return;
     }
 
@@ -1083,21 +1033,23 @@ function HomeContent() {
           usdcAddress: requirements.usdcAddress,
           usdcDecimals: requirements.usdcDecimals,
           contractPrice: requirements.contractPrice,
-          notice:
-            "The reaction amount changed. Please review it again before confirming.",
+          notice: "amount-changed",
         });
         setTransactionState({ status: "idle" });
         return;
       }
 
       if (requirements.usdcBalance < requirements.contractPrice) {
-        const reason = `Your embedded wallet needs at least ${formatUsdcAmount(
-          requirements.contractPrice,
-          requirements.usdcDecimals,
-        )} to send this reaction.`;
+        const error = paymentError(
+          "insufficient-usdc-amount",
+          formatUsdcAmount(
+            requirements.contractPrice,
+            requirements.usdcDecimals,
+          ),
+        );
         setBalanceCheck({
           status: "insufficient",
-          reason,
+          error,
           walletAddress: donorAddress,
           usdcAddress: requirements.usdcAddress,
           usdcBalance: requirements.usdcBalance,
@@ -1107,9 +1059,9 @@ function HomeContent() {
         });
         setTransactionState({
           status: "failure",
-          reason,
+          error,
         });
-        setConfirmation({ ...pending, phase: "failed", errorMessage: reason });
+        setConfirmation({ ...pending, phase: "failed", error });
         return;
       }
 
@@ -1180,18 +1132,20 @@ function HomeContent() {
       const relayResult = (await relayResponse.json()) as RelayDonationResponse;
 
       if (!relayResponse.ok || "error" in relayResult) {
-        const reason =
+        // Los códigos son estables; el mensaje traducido se resuelve al
+        // renderizar y los errores internos del servidor nunca se muestran
+        // crudos al viewer.
+        const error = paymentError(
           "error" in relayResult
-            ? relayResult.error
-            : "The relayer could not submit this reaction.";
+            ? getRelayErrorCode(relayResult.error, relayResult.status)
+            : "relayer-failed",
+        );
         setTransactionState({
           status: "failure",
-          reason,
+          error,
         });
         setConfirmation((current) =>
-          current
-            ? { ...current, phase: "failed", errorMessage: reason }
-            : current,
+          current ? { ...current, phase: "failed", error } : current,
         );
         return;
       }
@@ -1203,16 +1157,13 @@ function HomeContent() {
       });
 
       if (receipt.status !== "success") {
-        const reason =
-          "Monad did not complete this payment, so the reaction was not sent.";
+        const error = paymentError("tx-not-completed");
         setTransactionState({
           status: "failure",
-          reason,
+          error,
         });
         setConfirmation((current) =>
-          current
-            ? { ...current, phase: "failed", errorMessage: reason }
-            : current,
+          current ? { ...current, phase: "failed", error } : current,
         );
         return;
       }
@@ -1243,13 +1194,13 @@ function HomeContent() {
       }
       setShowSuccessBanner(true);
     } catch (error) {
-      const reason = getTransactionErrorMessage(error);
+      const paymentIssue = paymentError(getTransactionErrorCode(error));
       setTransactionState({
         status: "failure",
-        reason,
+        error: paymentIssue,
       });
       setConfirmation((current) =>
-        current ? { ...current, phase: "failed", errorMessage: reason } : current,
+        current ? { ...current, phase: "failed", error: paymentIssue } : current,
       );
     }
   };
@@ -1275,8 +1226,9 @@ function HomeContent() {
           <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5 sm:gap-2">
             <div className="hidden h-11 items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-3 text-xs font-medium text-slate-300 md:flex">
               <span className="w-2 h-2 rounded-full bg-emerald-400" />
-              Testnet
+              {t.common.testnet}
             </div>
+            <LanguageSwitcher />
             <UsdcBalanceIndicator
               authenticated={authenticated}
               walletsReady={walletsReady}
@@ -1293,8 +1245,10 @@ function HomeContent() {
                 className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900 px-2.5 text-sm font-semibold text-slate-200 transition-colors hover:border-purple-500/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 sm:gap-2 sm:px-3"
               >
                 <Wallet className="h-4 w-4 text-purple-300" />
-                <span className="hidden min-[360px]:inline sm:hidden">Fund</span>
-                <span className="hidden sm:inline">Fund wallet</span>
+                <span className="hidden min-[360px]:inline sm:hidden">
+                  {t.fund.short}
+                </span>
+                <span className="hidden sm:inline">{t.fund.wallet}</span>
               </button>
             )}
             <AuthButton />
@@ -1335,15 +1289,15 @@ function HomeContent() {
                 </span>
                 <span className="sm:hidden">
                   {isLiveStreamMode
-                    ? "Live"
+                    ? t.stream.live
                     : kickAutoState.status === "loading"
-                      ? "Checking"
-                      : "Demo"}
+                      ? t.stream.badgeChecking
+                      : t.stream.demo}
                 </span>
               </span>
               <details className="relative">
                 <summary
-                  aria-label="Transaction details"
+                  aria-label={t.details.label}
                   className="flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-full border border-slate-700 bg-slate-950/80 text-slate-300 backdrop-blur-sm transition-colors hover:text-white"
                 >
                   <Info className="h-4 w-4" />
@@ -1351,41 +1305,49 @@ function HomeContent() {
                 <div className="absolute right-0 top-full z-40 mt-2 w-[min(20rem,calc(100vw-2rem))] rounded-xl border border-slate-700 bg-slate-900/95 p-4 text-xs shadow-2xl backdrop-blur-sm">
                   <dl className="grid grid-cols-1 gap-3">
                     <div className="flex items-center justify-between gap-3">
-                      <dt className="text-slate-400">Network</dt>
+                      <dt className="text-slate-400">{t.common.network}</dt>
                       <dd className="text-slate-300">
                         {monadTestnet.name} ({monadTestnet.id})
                       </dd>
                     </div>
                     <div className="flex items-center justify-between gap-3">
-                      <dt className="text-slate-400">Your wallet</dt>
+                      <dt className="text-slate-400">{t.details.yourWallet}</dt>
                       <dd className="font-mono text-slate-300">
-                        {shortenAddress(embeddedWalletAddress)}
+                        {shortenAddress(embeddedWalletAddress) ??
+                          t.common.unavailable}
                       </dd>
                     </div>
                     <div className="flex items-center justify-between gap-3">
-                      <dt className="text-slate-400">Creator wallet</dt>
+                      <dt className="text-slate-400">
+                        {t.details.creatorWallet}
+                      </dt>
                       <dd className="font-mono text-slate-300">
-                        {shortenAddress(demoCreator.walletAddress)}
+                        {shortenAddress(demoCreator.walletAddress) ??
+                          t.common.unavailable}
                       </dd>
                     </div>
                     <div className="flex items-center justify-between gap-3">
-                      <dt className="text-slate-400">Contract</dt>
+                      <dt className="text-slate-400">{t.details.contract}</dt>
                       <dd className="font-mono text-slate-300">
-                        {shortenAddress(emotePayContract.address)}
+                        {shortenAddress(emotePayContract.address) ??
+                          t.common.unavailable}
                       </dd>
                     </div>
                     <div className="flex items-center justify-between gap-3">
-                      <dt className="text-slate-400">USDC token</dt>
+                      <dt className="text-slate-400">{t.details.usdcToken}</dt>
                       <dd className="font-mono text-slate-300">
                         {effectiveBalanceCheck.status === "ready"
-                          ? shortenAddress(effectiveBalanceCheck.usdcAddress)
-                          : "Pending check"}
+                          ? (shortenAddress(effectiveBalanceCheck.usdcAddress) ??
+                            t.common.unavailable)
+                          : t.details.pendingCheck}
                       </dd>
                     </div>
                     <div className="flex items-center justify-between gap-3">
-                      <dt className="text-slate-400">Transaction</dt>
+                      <dt className="text-slate-400">{t.details.transaction}</dt>
                       <dd className="font-mono text-slate-300">
-                        {lastHash ? shortenAddress(lastHash) : "Pending send"}
+                        {lastHash
+                          ? (shortenAddress(lastHash) ?? t.common.unavailable)
+                          : t.details.pendingSend}
                       </dd>
                     </div>
                     {lastHash && (
@@ -1395,7 +1357,7 @@ function HomeContent() {
                         rel="noreferrer"
                         className="inline-flex items-center gap-1 text-purple-300 hover:text-purple-200"
                       >
-                        View on Monad explorer
+                        {t.details.viewOnExplorer}
                         <ExternalLink className="h-3 w-3" />
                       </a>
                     )}
@@ -1414,7 +1376,7 @@ function HomeContent() {
                     }}
                     className="mt-3 inline-flex min-h-10 w-full items-center justify-center rounded-xl border border-purple-400/30 bg-purple-400/10 px-3 text-xs font-bold text-purple-100 transition-colors hover:border-purple-300 hover:text-white"
                   >
-                    Show tour
+                    {t.details.showTour}
                   </button>
                 </div>
               </details>
@@ -1460,7 +1422,7 @@ function HomeContent() {
                   disabled={!embeddedWalletAddress}
                   className="mt-2 inline-flex h-9 w-full items-center justify-center rounded-lg border border-amber-300/30 bg-amber-300/10 px-3 text-xs font-bold text-amber-100 transition-colors hover:bg-amber-300/20 disabled:cursor-not-allowed disabled:opacity-50 sm:ml-6 sm:w-auto"
                 >
-                  Fund wallet
+                  {t.fund.wallet}
                 </button>
               )}
             </div>
@@ -1508,7 +1470,7 @@ function HomeContent() {
                   {emote.emoji}
                 </span>
                 <span className="relative mt-3 text-sm font-bold text-slate-300">
-                  {emote.name}
+                  {t.emotes[emote.id as keyof typeof t.emotes] ?? emote.name}
                 </span>
                 {isSending ? (
                   <span className="relative mt-0.5 flex h-7 items-center">
@@ -1546,8 +1508,14 @@ function HomeContent() {
           networkName={monadTestnet.name}
           chainId={monadTestnet.id}
           authorizationValiditySeconds={RECEIVE_AUTHORIZATION_VALIDITY_SECONDS}
-          errorMessage={confirmation.errorMessage}
-          notice={confirmation.notice}
+          errorMessage={
+            confirmation.error
+              ? renderPaymentError(t, confirmation.error)
+              : undefined
+          }
+          notice={
+            confirmation.notice ? t.errors[confirmation.notice] : undefined
+          }
           onConfirm={handleConfirmReaction}
           onDismiss={() => setConfirmation(null)}
         />
@@ -1566,7 +1534,7 @@ function HomeContent() {
 
       <OnboardingTour
         open={isOnboardingTourOpen}
-        steps={ONBOARDING_TOUR_STEPS}
+        steps={onboardingTourSteps}
         onClose={closeOnboardingTour}
       />
     </main>

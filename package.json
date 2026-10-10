@@ -13,6 +13,7 @@
     "indexer:codegen": "pnpm --dir indexer codegen",
     "indexer:dev": "pnpm --dir indexer dev",
     "indexer:typecheck": "pnpm --dir indexer typecheck",
+    "test": "hardhat test nodejs",
     "test:contracts": "hardhat test nodejs",
     "start": "next start",
     "lint": "eslint",
